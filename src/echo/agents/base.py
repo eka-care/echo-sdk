@@ -105,6 +105,7 @@ class BaseAgent(ABC):
         self, skip_goal: bool = False, skip_expected_output: bool = False
     ) -> str:
         """Build system prompt from agent config."""
+        system_prompt = ""
         if self.role:
             system_prompt = f"You are a {self.role}\n\n"
         if not skip_goal and self.goal:
