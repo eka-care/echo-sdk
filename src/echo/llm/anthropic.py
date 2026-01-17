@@ -39,7 +39,7 @@ class AnthropicLLM(BaseLLM):
             self._client = anthropic.Anthropic()
         return self._client
 
-    def _parse_response(self, response) -> Message:
+    def _parse_response(self, response, msg_id: str) -> Message:
         """Parse Anthropic response into a Message."""
         content_items = []
         for block in response.content:
@@ -57,7 +57,7 @@ class AnthropicLLM(BaseLLM):
         return Message(
             role=MessageRole.ASSISTANT,
             content=content_items,
-            msg_id=str(uuid.uuid4()),
+            msg_id=msg_id,
             usage=LLMUsageMetrics(
                 in_t=response.usage.input_tokens,
                 op_t=response.usage.output_tokens,
@@ -70,6 +70,7 @@ class AnthropicLLM(BaseLLM):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Tuple[LLMResponse, ConversationContext]:
         """
@@ -80,6 +81,7 @@ class AnthropicLLM(BaseLLM):
         """
         final_response = LLMResponse()
         elicitations = []
+        msg_id = out_msg_id or str(uuid.uuid4())
 
         # Build tool schemas if tools provided
         tool_schemas = None
@@ -112,7 +114,7 @@ class AnthropicLLM(BaseLLM):
             response = self.client.messages.create(**request_kwargs)
 
             # Parse response into Message
-            assistant_msg = self._parse_response(response)
+            assistant_msg = self._parse_response(response, msg_id)
             context.add_message(assistant_msg)
             messages.append(assistant_msg.to_anthropic_message())
 
@@ -141,7 +143,7 @@ class AnthropicLLM(BaseLLM):
                 results_msg = Message(
                     role=MessageRole.TOOL,
                     content=tool_results,
-                    msg_id=str(uuid.uuid4()),
+                    msg_id=msg_id,
                 )
                 context.add_message(results_msg)
                 messages.append(results_msg.to_anthropic_message())
@@ -179,6 +181,7 @@ class AnthropicLLM(BaseLLM):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """
@@ -191,11 +194,14 @@ class AnthropicLLM(BaseLLM):
             context: Conversation context with messages
             tools: Optional list of tools available for the LLM
             system_prompt: Optional system prompt
+            out_msg_id: Optional message ID for grouping messages
             **kwargs: Additional arguments (max_tokens, temperature)
 
         Yields:
             StreamEvent objects with type indicating what happened
         """
+        msg_id = out_msg_id or str(uuid.uuid4())
+
         # Build tool schemas if tools provided
         tool_schemas = None
         tool_map = {}
@@ -235,19 +241,23 @@ class AnthropicLLM(BaseLLM):
                             block_id = event.index
                             block = event.content_block
                             if block.type == "tool_use":
+                                tool = tool_map.get(block.name)
+                                is_elicitation = tool.is_elicitation if tool else False
                                 blocks[block_id] = {
                                     "type": "tool",
                                     "tool_id": block.id,
                                     "tool_name": block.name,
                                     "input_json": "",
+                                    "is_elicitation": is_elicitation,
                                 }
-                                yield StreamEvent(
-                                    type=StreamEventType.TOOL_CALL_START,
-                                    details={
-                                        "tool_id": block.id,
-                                        "tool_name": block.name,
-                                    },
-                                )
+                                if not is_elicitation:
+                                    yield StreamEvent(
+                                        type=StreamEventType.TOOL_CALL_START,
+                                        details={
+                                            "tool_id": block.id,
+                                            "tool_name": block.name,
+                                        },
+                                    )
                             else:
                                 blocks[block_id] = {
                                     "type": "text",
@@ -285,13 +295,15 @@ class AnthropicLLM(BaseLLM):
                                 tool_res = await self.invoke_tool(
                                     tool_map, tool_call, context.tool_context
                                 )
-                                yield StreamEvent(
-                                    type=StreamEventType.TOOL_CALL_END,
-                                    details={
-                                        "tool_name": blocks[block_id]["tool_name"],
-                                        "tool_id": blocks[block_id]["tool_id"],
-                                    },
-                                )
+                                # progress message event (skip for elicitation tools)
+                                if not blocks[block_id].get("is_elicitation"):
+                                    yield StreamEvent(
+                                        type=StreamEventType.TOOL_CALL_END,
+                                        details={
+                                            "tool_name": blocks[block_id]["tool_name"],
+                                            "tool_id": blocks[block_id]["tool_id"],
+                                        },
+                                    )
 
                                 if isinstance(tool_res, ElicitationResponse):
                                     elicitations.append(tool_res)
@@ -334,7 +346,7 @@ class AnthropicLLM(BaseLLM):
                 llm_message = Message(
                     role=MessageRole.ASSISTANT,
                     content=content_items_list,
-                    msg_id=str(uuid.uuid4()),
+                    msg_id=msg_id,
                     usage=usage_metrics,
                 )
                 context.add_message(llm_message)
@@ -344,7 +356,7 @@ class AnthropicLLM(BaseLLM):
                     results_msg = Message(
                         role=MessageRole.TOOL,
                         content=tool_results,
-                        msg_id=str(uuid.uuid4()),
+                        msg_id=msg_id,
                     )
                     context.add_message(results_msg)
                     messages.append(results_msg.to_anthropic_message())

@@ -32,6 +32,7 @@ class GenericAgent(BaseAgent):
     async def run(
         self,
         context: ConversationContext,
+        out_msg_id: str,
     ) -> AgentResult:
         """
         Generic Agent to run for any use case
@@ -40,11 +41,12 @@ class GenericAgent(BaseAgent):
         """
         # Add you own code here or call the helper method _run_agent from base class
         # No changes to the base run agent needed for generic agent
-        return await self._run_agent(context)
+        return await self._run_agent(context, out_msg_id)
 
     async def run_stream(
         self,
         context: ConversationContext,
+        out_msg_id: str,
     ) -> AsyncGenerator[StreamEvent, None]:
         """
         Stream the agent's response. Overrides the base class method.
@@ -55,5 +57,5 @@ class GenericAgent(BaseAgent):
         """
         # Add you own code here or call the helper method _run_agent_stream from base class
         # No changes to the base run agent needed for generic agent
-        async for event in self._run_agent_stream(context):
+        async for event in self._run_agent_stream(context, out_msg_id):
             yield event

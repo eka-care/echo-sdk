@@ -66,6 +66,8 @@ class BaseAgent(ABC):
     async def run(
         self,
         context: "ConversationContext",
+        out_msg_id: str,
+        **kwargs: Any,
     ) -> AgentResult:
         """
         Execute the agent's task (standalone mode).
@@ -84,6 +86,8 @@ class BaseAgent(ABC):
     async def run_stream(
         self,
         context: "ConversationContext",
+        out_msg_id: str,
+        **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """
         Stream the agent's response.
@@ -120,9 +124,7 @@ class BaseAgent(ABC):
 
         return system_prompt
 
-    async def _run_agent(
-        self, context: "ConversationContext"
-    ) -> AgentResult:
+    async def _run_agent(self, context: "ConversationContext", out_msg_id: str) -> AgentResult:
         """Run the agent (non-streaming)."""
         try:
             # Build system prompt with task(mandatory) & expected output,role(optional)
@@ -133,6 +135,7 @@ class BaseAgent(ABC):
                 context=context,
                 tools=self.tools,
                 system_prompt=system_prompt,
+                out_msg_id=out_msg_id,
             )
             return AgentResult(
                 llm_response=llm_response,
@@ -149,22 +152,19 @@ class BaseAgent(ABC):
             )
 
     async def _run_agent_stream(
-        self, context: "ConversationContext"
+        self, context: "ConversationContext", out_msg_id: str
     ) -> AsyncGenerator[StreamEvent, None]:
         """Run the agent with streaming."""
-        try:
-            # Build system prompt with task(mandatory) & expected output,role(optional)
-            system_prompt = self._build_system_prompt(skip_goal=True)
+        # Build system prompt with task(mandatory) & expected output,role(optional)
+        system_prompt = self._build_system_prompt(skip_goal=True)
 
-            async for event in self.llm.invoke_stream(
-                context=context,
-                tools=self.tools,
-                system_prompt=system_prompt,
-            ):
-                yield event
-
-        except Exception as e:
-            yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
+        async for event in self.llm.invoke_stream(
+            context=context,
+            tools=self.tools,
+            system_prompt=system_prompt,
+            out_msg_id=out_msg_id,
+        ):
+            yield event
 
     # --- Framework Adapters ---
     def to_crewai_agent(self, **kwargs) -> Any:

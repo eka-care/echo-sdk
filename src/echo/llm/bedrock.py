@@ -6,7 +6,6 @@ import uuid
 from typing import Any, AsyncGenerator, List, Optional, Tuple
 
 import orjson
-
 from echo.models.user_conversation import (
     ConversationContext,
     LLMUsageMetrics,
@@ -14,7 +13,6 @@ from echo.models.user_conversation import (
     MessageRole,
     TextMessage,
     ToolCall,
-    ToolResult,
 )
 from echo.tools.base_tool import BaseTool
 from echo.tools.schemas import ElicitationResponse
@@ -41,7 +39,7 @@ class BedrockLLM(BaseLLM):
             self._client = boto3.client("bedrock-runtime", region_name=self.region)
         return self._client
 
-    def _parse_response(self, response) -> Message:
+    def _parse_response(self, response, msg_id: str) -> Message:
         """Parse Bedrock response into a Message."""
         output = response.get("output", {})
         message = output.get("message", {})
@@ -65,7 +63,7 @@ class BedrockLLM(BaseLLM):
         return Message(
             role=MessageRole.ASSISTANT,
             content=content_items,
-            msg_id=str(uuid.uuid4()),
+            msg_id=msg_id,
             usage=LLMUsageMetrics(
                 in_t=usage.get("inputTokens", 0),
                 op_t=usage.get("outputTokens", 0),
@@ -78,6 +76,7 @@ class BedrockLLM(BaseLLM):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Tuple[LLMResponse, ConversationContext]:
         """
@@ -88,6 +87,7 @@ class BedrockLLM(BaseLLM):
         """
         final_response = LLMResponse()
         elicitations = []
+        msg_id = out_msg_id or str(uuid.uuid4())
 
         # Build tool config if tools provided
         tool_config = None
@@ -124,7 +124,7 @@ class BedrockLLM(BaseLLM):
             response = self.client.converse(**request_kwargs)
 
             # Parse response into Message and add to context and bedrock messages list
-            assistant_msg = self._parse_response(response)
+            assistant_msg = self._parse_response(response, msg_id)
             context.add_message(assistant_msg)
             messages.append(assistant_msg.to_bedrock_message())
 
@@ -153,7 +153,7 @@ class BedrockLLM(BaseLLM):
                 results_msg = Message(
                     role=MessageRole.TOOL,
                     content=tool_results,
-                    msg_id=str(uuid.uuid4()),
+                    msg_id=msg_id,
                 )
                 context.add_message(results_msg)
 
@@ -193,6 +193,7 @@ class BedrockLLM(BaseLLM):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """
@@ -258,19 +259,24 @@ class BedrockLLM(BaseLLM):
                         block_id = event["contentBlockStart"].get("contentBlockIndex")
                         start = event["contentBlockStart"].get("start") or {}
                         if start.get("toolUse"):
+                            tool_name = start["toolUse"]["name"]
+                            tool = tool_map.get(tool_name)
+                            is_elicitation = tool.is_elicitation if tool else False
                             blocks[block_id] = {
                                 "type": "tool",
                                 "tool_id": start["toolUse"]["toolUseId"],
-                                "tool_name": start["toolUse"]["name"],
+                                "tool_name": tool_name,
                                 "input_json": "",
+                                "is_elicitation": is_elicitation,
                             }
-                            yield StreamEvent(
-                                type=StreamEventType.TOOL_CALL_START,
-                                details={
-                                    "tool_id": blocks[block_id]["tool_id"],
-                                    "tool_name": blocks[block_id]["tool_name"],
-                                },
-                            )
+                            if not is_elicitation:
+                                yield StreamEvent(
+                                    type=StreamEventType.TOOL_CALL_START,
+                                    details={
+                                        "tool_id": blocks[block_id]["tool_id"],
+                                        "tool_name": blocks[block_id]["tool_name"],
+                                    },
+                                )
                         else:
                             blocks[block_id] = {
                                 "type": "text",
@@ -318,14 +324,15 @@ class BedrockLLM(BaseLLM):
                             tool_res = await self.invoke_tool(
                                 tool_map, tool_call, context.tool_context
                             )
-                            # progress message event
-                            yield StreamEvent(
-                                type=StreamEventType.TOOL_CALL_END,
-                                details={
-                                    "tool_name": blocks[block_id]["tool_name"],
-                                    "tool_id": blocks[block_id]["tool_id"],
-                                },
-                            )
+                            # progress message event (skip for elicitation tools)
+                            if not blocks[block_id].get("is_elicitation"):
+                                yield StreamEvent(
+                                    type=StreamEventType.TOOL_CALL_END,
+                                    details={
+                                        "tool_name": blocks[block_id]["tool_name"],
+                                        "tool_id": blocks[block_id]["tool_id"],
+                                    },
+                                )
 
                             if isinstance(tool_res, ElicitationResponse):
                                 # Add accumulated content as assistant message
@@ -376,7 +383,7 @@ class BedrockLLM(BaseLLM):
                 llm_message = Message(
                     role=MessageRole.ASSISTANT,
                     content=content_items_list,
-                    msg_id=str(uuid.uuid4()),
+                    msg_id=out_msg_id,
                     usage=usage_metrics,
                 )
                 context.add_message(llm_message)
@@ -386,7 +393,7 @@ class BedrockLLM(BaseLLM):
                     llm_message = Message(
                         role=MessageRole.TOOL,
                         content=tool_results,
-                        msg_id=str(uuid.uuid4()),
+                        msg_id=out_msg_id,
                     )
                     context.add_message(llm_message)
                     messages.append(llm_message.to_bedrock_message())

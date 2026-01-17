@@ -83,7 +83,7 @@ class Message(BaseModel):
 
     role: MessageRole
     content: List[ContentItem]
-    usage: LLMUsageMetrics = Field(default_factory=LLMUsageMetrics)
+    usage: Optional[LLMUsageMetrics] = None
     timestamp: Optional[int] = Field(
         default=None, description="Unix timestamp of the message"
     )

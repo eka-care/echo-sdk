@@ -31,6 +31,7 @@ class BaseLLM(ABC):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Tuple[LLMResponse, ConversationContext]:
         """
@@ -79,7 +80,8 @@ class BaseLLM(ABC):
             tool = tool_map.get(tool_call.tool_name)
             if not tool:
                 return ToolResult(
-                    tool_id=tool_call.tool_id, result="Error: Tool not found, don't use this tool"
+                    tool_id=tool_call.tool_id,
+                    result="Error: Tool not found, don't use this tool",
                 )
 
             is_elicitation = tool.is_elicitation
@@ -100,13 +102,16 @@ class BaseLLM(ABC):
                     tool_id=tool_call.tool_id, error=f"Error running tool: {e}"
                 )
             else:
-                return ToolResult(tool_id=tool_call.tool_id, result=f"Error running tool: {e}")
+                return ToolResult(
+                    tool_id=tool_call.tool_id, result=f"Error running tool: {e}"
+                )
 
     async def invoke_stream(
         self,
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """

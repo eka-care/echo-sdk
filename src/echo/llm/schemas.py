@@ -1,10 +1,9 @@
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel
-
 from echo.models.user_conversation import ConversationContext
 from echo.tools.schemas import ElicitationResponse
+from pydantic import BaseModel
 
 
 class VerboseResponseItem(BaseModel):
@@ -40,6 +39,7 @@ class StreamEvent(BaseModel):
     type: StreamEventType
     text: Optional[str] = None  # For TYPE TEXT
     details: Optional[Dict[str, Any]] = None  # For TYPE TOOL_CALL_START/END
+
     llm_response: Optional[LLMResponse] = None  # For TYPE DONE LLM_RESPONSE
     context: Optional[ConversationContext] = None  # For TYPE DONE CONTEXT
     error: Optional[str] = None  # For TYPE ERROR

@@ -39,7 +39,7 @@ class OpenAILLM(BaseLLM):
             self._client = OpenAI()
         return self._client
 
-    def _parse_response(self, response) -> Message:
+    def _parse_response(self, response, msg_id: str) -> Message:
         """Parse OpenAI response into a Message."""
         message = response.choices[0].message
         content_items = []
@@ -60,7 +60,7 @@ class OpenAILLM(BaseLLM):
         return Message(
             role=MessageRole.ASSISTANT,
             content=content_items,
-            msg_id=str(uuid.uuid4()),
+            msg_id=msg_id,
             usage=LLMUsageMetrics(
                 in_t=response.usage.prompt_tokens,
                 op_t=response.usage.completion_tokens,
@@ -73,6 +73,7 @@ class OpenAILLM(BaseLLM):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Tuple[LLMResponse, ConversationContext]:
         """
@@ -83,6 +84,7 @@ class OpenAILLM(BaseLLM):
         """
         final_response = LLMResponse()
         elicitations = []
+        msg_id = out_msg_id or str(uuid.uuid4())
 
         # Build tool schemas if tools provided
         openai_tools = None
@@ -118,7 +120,7 @@ class OpenAILLM(BaseLLM):
             response = self.client.chat.completions.create(**request_kwargs)
 
             # Parse response into Message
-            assistant_msg = self._parse_response(response)
+            assistant_msg = self._parse_response(response, msg_id)
             context.add_message(assistant_msg)
             messages.append(assistant_msg.to_openai_message())
 
@@ -144,7 +146,7 @@ class OpenAILLM(BaseLLM):
                         result_msg = Message(
                             role=MessageRole.TOOL,
                             content=[tool_result],
-                            msg_id=str(uuid.uuid4()),
+                            msg_id=msg_id,
                         )
                         context.add_message(result_msg)
                         messages.append(result_msg.to_openai_message())
@@ -184,6 +186,7 @@ class OpenAILLM(BaseLLM):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """
@@ -196,11 +199,14 @@ class OpenAILLM(BaseLLM):
             context: Conversation context with messages
             tools: Optional list of tools available for the LLM
             system_prompt: Optional system prompt
+            out_msg_id: Optional message ID for grouping messages
             **kwargs: Additional arguments (max_tokens, temperature)
 
         Yields:
             StreamEvent objects with type indicating what happened
         """
+        msg_id = out_msg_id or str(uuid.uuid4())
+
         # Build tool schemas if tools provided
         openai_tools = None
         tool_map = {}
@@ -266,16 +272,20 @@ class OpenAILLM(BaseLLM):
 
                             if idx not in tool_calls_map:
                                 # New tool call starting
+                                tool_name = (
+                                    tc_delta.function.name
+                                    if tc_delta.function
+                                    else ""
+                                )
+                                tool = tool_map.get(tool_name)
+                                is_elicitation = tool.is_elicitation if tool else False
                                 tool_calls_map[idx] = {
                                     "id": tc_delta.id or "",
-                                    "name": (
-                                        tc_delta.function.name
-                                        if tc_delta.function
-                                        else ""
-                                    ),
+                                    "name": tool_name,
                                     "arguments": "",
+                                    "is_elicitation": is_elicitation,
                                 }
-                                if tc_delta.id and tc_delta.function:
+                                if tc_delta.id and tc_delta.function and not is_elicitation:
                                     yield StreamEvent(
                                         type=StreamEventType.TOOL_CALL_START,
                                         details={
@@ -326,13 +336,15 @@ class OpenAILLM(BaseLLM):
                         tool_map, tool_call, context.tool_context
                     )
 
-                    yield StreamEvent(
-                        type=StreamEventType.TOOL_CALL_END,
-                        details={
-                            "tool_name": tc_data["name"],
-                            "tool_id": tc_data["id"],
-                        },
-                    )
+                    # progress message event (skip for elicitation tools)
+                    if not tc_data.get("is_elicitation"):
+                        yield StreamEvent(
+                            type=StreamEventType.TOOL_CALL_END,
+                            details={
+                                "tool_name": tc_data["name"],
+                                "tool_id": tc_data["id"],
+                            },
+                        )
 
                     if isinstance(tool_res, ElicitationResponse):
                         elicitations.append(tool_res)
@@ -347,7 +359,7 @@ class OpenAILLM(BaseLLM):
                     llm_message = Message(
                         role=MessageRole.ASSISTANT,
                         content=content_items,
-                        msg_id=str(uuid.uuid4()),
+                        msg_id=msg_id,
                         usage=usage_metrics,
                     )
                     context.add_message(llm_message)
@@ -359,7 +371,7 @@ class OpenAILLM(BaseLLM):
                         result_msg = Message(
                             role=MessageRole.TOOL,
                             content=[tool_res],
-                            msg_id=str(uuid.uuid4()),
+                            msg_id=msg_id,
                         )
                         context.add_message(result_msg)
                         messages.append(result_msg.to_openai_message())
