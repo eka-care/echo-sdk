@@ -374,7 +374,7 @@ class OpenAILLM(BaseLLM):
                             msg_id=msg_id,
                         )
                         context.add_message(result_msg)
-                        messages.append(result_msg.to_openai_message())
+                        messages.append(result_msg.to_openai_messages())
                     final_response.pending_tool_result_processing = True
                 else:
                     final_response.pending_tool_result_processing = False
