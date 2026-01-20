@@ -122,7 +122,7 @@ class OpenAILLM(BaseLLM):
             # Parse response into Message
             assistant_msg = self._parse_response(response, msg_id)
             context.add_message(assistant_msg)
-            messages.append(assistant_msg.to_openai_message())
+            messages.append(assistant_msg.to_openai_messages())
 
             tool_results = []
             for content_item in assistant_msg.content:
@@ -149,7 +149,7 @@ class OpenAILLM(BaseLLM):
                             msg_id=msg_id,
                         )
                         context.add_message(result_msg)
-                        messages.append(result_msg.to_openai_message())
+                        messages.append(result_msg.to_openai_messages())
                         tool_results.append(tool_result)
                         final_response.pending_tool_result_processing = True
 
@@ -363,7 +363,7 @@ class OpenAILLM(BaseLLM):
                         usage=usage_metrics,
                     )
                     context.add_message(llm_message)
-                    messages.append(llm_message.to_openai_message())
+                    messages.append(llm_message.to_openai_messages())
 
                 # OpenAI requires each tool result as a separate message
                 if tool_results:
