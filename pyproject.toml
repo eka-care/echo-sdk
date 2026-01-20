@@ -38,6 +38,9 @@ anthropic = ["anthropic>=0.18.0"]
 crewai = ["crewai>=1.6.1"]
 mcp = ["mcp>=1.8.0"]
 
+# Prompt Management
+langfuse = ["langfuse>=2.0.0"]
+
 # Convenience bundles
 all = [
     "boto3>=1.38.23",
@@ -45,6 +48,7 @@ all = [
     "anthropic>=0.18.0",
     "crewai>=1.6.1",
     "mcp>=1.8.0",
+    "langfuse>=2.0.0",
 ]
 
 dev = [
@@ -64,3 +68,4 @@ pythonpath = ["src"]
 addopts = "-v --tb=short"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
