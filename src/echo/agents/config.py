@@ -3,33 +3,36 @@ Configuration schemas for Echo SDK.
 
 Pydantic models for YAML-based agent/task configuration.
 """
-from pydantic import BaseModel
+
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Optional
 
 import yaml
+from pydantic import BaseModel
 
 
 class PersonaConfig(BaseModel):
     """Agent configuration."""
 
-    role: str
-    goal: str
-    backstory: str
+    role: Optional[str] = None
+    goal: Optional[str] = None
+    backstory: Optional[str] = None
 
 
 class TaskConfig(BaseModel):
     """Task configuration."""
 
     description: str
-    expected_output: str
+    expected_output: Optional[str] = None
 
 
 class AgentConfig(BaseModel):
     """Combined role + task configuration."""
 
-    persona: PersonaConfig
+    persona: PersonaConfig = PersonaConfig()
     task: TaskConfig
-
 
 
 """
@@ -37,6 +40,7 @@ Configuration loader for Echo SDK.
 
 Loads YAML configs and returns typed Pydantic models.
 """
+
 
 def load_agent_config(config_path: Path) -> AgentConfig:
     """
@@ -56,4 +60,3 @@ def load_agent_config(config_path: Path) -> AgentConfig:
         data = yaml.safe_load(f)
 
     return AgentConfig(**data)
-

@@ -117,14 +117,16 @@ class BaseAgent(ABC):
 
         if not self.task_description:
             raise Exception("Task description is required")
-        system_prompt += f"Task Description: {self.task_description} \n\n"
+        system_prompt += f"{self.task_description} \n\n"
 
         if not skip_expected_output and self.expected_output:
             system_prompt += f"Expected Output: {self.expected_output}"
 
         return system_prompt
 
-    async def _run_agent(self, context: "ConversationContext", out_msg_id: str) -> AgentResult:
+    async def _run_agent(
+        self, context: "ConversationContext", out_msg_id: str
+    ) -> AgentResult:
         """Run the agent (non-streaming)."""
         try:
             # Build system prompt with task(mandatory) & expected output,role(optional)
