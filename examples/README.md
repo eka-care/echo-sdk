@@ -83,7 +83,7 @@ from echo.agents import GenericAgent
 from echo.agents.config import AgentConfig, PersonaConfig, TaskConfig
 from echo.llm import LLMConfig
 from echo.models import ConversationContext, Message, MessageRole, TextMessage
-from echo.tools import MCPServerConfig, MCPToolProvider, MCPTransport
+from echo.tools import MCPServerConfig, MCPConnectionManager, MCPTransport
 
 async def main():
     # Configure MCP server
@@ -106,39 +106,39 @@ async def main():
         ),
     )
 
-    # Discover tools from MCP server
-    async with MCPToolProvider([mcp_config]) as provider:
-        tools = await provider.get_tools()
-        print(f"Discovered {len(tools)} tools")
+    # Discover tools from MCP server (with automatic connection management)
+    manager = MCPConnectionManager(mcp_config)
+    tools = await manager.get_tools()
+    print(f"Discovered {len(tools)} tools")
 
-        # Create agent with MCP tools
-        agent = GenericAgent(
-            agent_config=agent_config,
-            llm_config=LLMConfig(
-                provider="anthropic",
-                model="claude-haiku-4-5-20251001",
-                max_iterations=5,
-            ),
-            tools=tools,
+    # Create agent with MCP tools
+    agent = GenericAgent(
+        agent_config=agent_config,
+        llm_config=LLMConfig(
+            provider="anthropic",
+            model="claude-haiku-4-5-20251001",
+            max_iterations=5,
+        ),
+        tools=tools,
+    )
+
+    # Create conversation
+    context = ConversationContext()
+    context.add_message(
+        Message(
+            role=MessageRole.USER,
+            content=[TextMessage(text="Book an appointment with Dr. Smith")]
         )
+    )
 
-        # Create conversation
-        context = ConversationContext()
-        context.add_message(
-            Message(
-                role=MessageRole.USER,
-                content=[TextMessage(text="Book an appointment with Dr. Smith")]
-            )
-        )
+    # Run agent
+    result = await agent.run(context)
+    print(result.llm_response.text)
 
-        # Run agent
-        result = await agent.run(context)
-        print(result.llm_response.text)
-
-        # Or stream the response
-        async for event in agent.run_stream(context):
-            if event.type == StreamEventType.TEXT:
-                print(event.text, end="", flush=True)
+    # Or stream the response
+    async for event in agent.run_stream(context):
+        if event.type == StreamEventType.TEXT:
+            print(event.text, end="", flush=True)
 
 asyncio.run(main())
 ```

@@ -4,6 +4,31 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, HttpUrl, field_serializer
 
 
+# MCP Exception Classes
+class MCPError(Exception):
+    """Base exception for MCP operations."""
+
+    pass
+
+
+class MCPConfigError(MCPError):
+    """Configuration errors (no retry)."""
+
+    pass
+
+
+class MCPConnectionError(MCPError):
+    """Connection failures (retryable)."""
+
+    pass
+
+
+class MCPExecutionError(MCPError):
+    """Tool execution failures after all retries."""
+
+    pass
+
+
 class ElicitationComponent(str, Enum):
     """Types of elicitation UI components."""
 
@@ -54,6 +79,9 @@ class MCPServerConfig(BaseModel):
     command: Optional[str] = None
     args: Optional[List[str]] = None
     env: Optional[Dict[str, str]] = None
+
+    # Connection management
+    connection_ttl: float = 600.0  # TTL for cleanup (10 minutes)
 
     def validate(self) -> None:
         """Validate configuration based on transport type."""

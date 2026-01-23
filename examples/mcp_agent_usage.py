@@ -24,7 +24,7 @@ from echo.models.user_conversation import (
     MessageRole,
     TextMessage,
 )
-from echo.tools import MCPServerConfig, MCPToolProvider, MCPTransport
+from echo.tools import MCPConnectionManager, MCPServerConfig, MCPTransport
 
 # MCP Server configurations
 print(os.getenv("EK_JWT_PAYLOAD"))
@@ -69,14 +69,14 @@ async def discover_tools_from_servers():
 
     for server_config in MCP_SERVERS:
         try:
-            provider = MCPToolProvider(server_config)
+            manager = MCPConnectionManager(server_config)
             print(f"Connecting to: {server_config.url}")
 
-            async with provider.connect() as tools:
-                print(f"  Found {len(tools)} tools:")
-                for tool in tools:
-                    print(f"    - {tool.name}: {tool.description}")
-                all_tools.extend(tools)
+            tools = await manager.get_tools()
+            print(f"  Found {len(tools)} tools:")
+            for tool in tools:
+                print(f"    - {tool.name}: {tool.description}")
+            all_tools.extend(tools)
 
         except Exception as e:
             print(f"  Error connecting to {server_config.url}: {e}")
@@ -94,18 +94,13 @@ async def run_conversation():
 
     # Collect tools from all MCP servers
     all_tools = []
-    provider_contexts = []
 
     for server_config in MCP_SERVERS:
         try:
-            provider = MCPToolProvider(server_config)
+            manager = MCPConnectionManager(server_config)
             print(f"Connecting to: {server_config.url}")
 
-            # Enter the context and keep it open
-            ctx = provider.connect()
-            tools = await ctx.__aenter__()
-            provider_contexts.append(ctx)
-
+            tools = await manager.get_tools()
             print(f"  Connected! Found {len(tools)} tools")
             all_tools.extend(tools)
 
@@ -120,101 +115,95 @@ async def run_conversation():
     print("Tools:", ", ".join(t.name for t in all_tools))
     print()
 
-    try:
-        # Create agent with all MCP tools
-        agent = GenericAgent(
-            agent_config=AGENT_CONFIG,
-            tools=all_tools,
-            llm_config=LLMConfig(),
+    # Create agent with all MCP tools
+    agent = GenericAgent(
+        agent_config=AGENT_CONFIG,
+        tools=all_tools,
+        llm_config=LLMConfig(),
+    )
+
+    # Create conversation context
+    context = ConversationContext()
+
+    print("=" * 60)
+    print("Starting conversation (10 messages)")
+    print("Type 'quit' to exit early")
+    print("=" * 60)
+    print()
+
+    for i in range(10):
+        # Get user input
+        try:
+            user_input = input(f"[{i+1}/10] You: ").strip()
+        except EOFError:
+            print("\nEnd of input. Exiting.")
+            break
+
+        if user_input.lower() == "quit":
+            print("Exiting conversation.")
+            break
+
+        if not user_input:
+            print("Empty input, skipping...")
+            continue
+
+        # Add user message to context
+        context.add_message(
+            Message(
+                role=MessageRole.USER,
+                content=[TextMessage(text=user_input)],
+            )
         )
 
-        # Create conversation context
-        context = ConversationContext()
+        # Run agent
+        print("Agent thinking...")
+        try:
+            result = await agent.run(context)
 
-        print("=" * 60)
-        print("Starting conversation (10 messages)")
-        print("Type 'quit' to exit early")
-        print("=" * 60)
+            if result.error:
+                print(f"Agent Error: {result.error}")
+            elif result.llm_response:
+                # Display verbose output (text and tool calls from all iterations)
+                if result.llm_response.verbose:
+                    print("\n--- Verbose Output ---")
+                    for item in result.llm_response.verbose:
+                        if item.type == "text":
+                            print(f"[Text] {item.text}")
+                        elif item.type == "tool":
+                            print(f"[Tool] Called: {item.tool_name}")
+                    print("--- End Verbose ---")
+
+                # Display final response
+                print(f"\nAgent: {result.llm_response.text}")
+
+                # Check if there are elicitations to display
+                if result.llm_response.elicitations:
+                    print("\n--- Elicitation UI ---")
+                    for elicitation in result.llm_response.elicitations:
+                        print(f"Component: {elicitation.details.component}")
+                        print(
+                            f"Options: {elicitation.details.input.get('options', [])}"
+                        )
+                        print(f"Text: {elicitation.details.input.get('text', '')}")
+                    print("--- End Elicitation ---")
+            else:
+                print(f"Agent: {result}")
+
+            # Update context with the result's context if available
+            if result.context:
+                context = result.context
+
+        except Exception as e:
+            print(f"Error running agent: {e}")
+
         print()
 
-        for i in range(10):
-            # Get user input
-            try:
-                user_input = input(f"[{i+1}/10] You: ").strip()
-            except EOFError:
-                print("\nEnd of input. Exiting.")
-                break
+    print("=" * 60)
+    print("Conversation ended")
+    print("=" * 60)
 
-            if user_input.lower() == "quit":
-                print("Exiting conversation.")
-                break
-
-            if not user_input:
-                print("Empty input, skipping...")
-                continue
-
-            # Add user message to context
-            context.add_message(
-                Message(
-                    role=MessageRole.USER,
-                    content=[TextMessage(text=user_input)],
-                )
-            )
-
-            # Run agent
-            print("Agent thinking...")
-            try:
-                result = await agent.run(context)
-
-                if result.error:
-                    print(f"Agent Error: {result.error}")
-                elif result.llm_response:
-                    # Display verbose output (text and tool calls from all iterations)
-                    if result.llm_response.verbose:
-                        print("\n--- Verbose Output ---")
-                        for item in result.llm_response.verbose:
-                            if item.type == "text":
-                                print(f"[Text] {item.text}")
-                            elif item.type == "tool":
-                                print(f"[Tool] Called: {item.tool_name}")
-                        print("--- End Verbose ---")
-
-                    # Display final response
-                    print(f"\nAgent: {result.llm_response.text}")
-
-                    # Check if there are elicitations to display
-                    if result.llm_response.elicitations:
-                        print("\n--- Elicitation UI ---")
-                        for elicitation in result.llm_response.elicitations:
-                            print(f"Component: {elicitation.details.component}")
-                            print(
-                                f"Options: {elicitation.details.input.get('options', [])}"
-                            )
-                            print(f"Text: {elicitation.details.input.get('text', '')}")
-                        print("--- End Elicitation ---")
-                else:
-                    print(f"Agent: {result}")
-
-                # Update context with the result's context if available
-                if result.context:
-                    context = result.context
-
-            except Exception as e:
-                print(f"Error running agent: {e}")
-
-            print()
-
-        print("=" * 60)
-        print("Conversation ended")
-        print("=" * 60)
-
-    finally:
-        # Clean up all provider contexts
-        for ctx in provider_contexts:
-            try:
-                await ctx.__aexit__(None, None, None)
-            except Exception:
-                pass
+    # Optional: cleanup all connections explicitly
+    # await MCPConnectionManager.cleanup_all()
 
 
 async def main():
