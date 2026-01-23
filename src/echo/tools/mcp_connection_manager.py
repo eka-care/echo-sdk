@@ -229,18 +229,35 @@ class MCPConnectionManager:
         try:
             if conn.session:
                 await conn.session.__aexit__(None, None, None)
+        except RuntimeError as e:
+            # Expected for streamable_http when cleaning up from different task
+            if "cancel scope" in str(e):
+                logger.debug(f"Ignoring expected cleanup error: {e}")
+            else:
+                logger.error(f"Error closing session: {e}")
+        except Exception as e:
+            logger.error(f"Error closing session: {e}")
+
+        try:
             if conn.transport_context:
                 await conn.transport_context.__aexit__(None, None, None)
-            logger.debug(f"Closed connection: {self._server_id}")
+        except RuntimeError as e:
+            # Expected for streamable_http when cleaning up from different task
+            if "cancel scope" in str(e):
+                logger.debug(f"Ignoring expected cleanup error: {e}")
+            else:
+                logger.error(f"Error closing transport: {e}")
         except Exception as e:
-            logger.error(f"Error closing connection: {e}")
+            logger.error(f"Error closing transport: {e}")
+
+        logger.debug(f"Closed connection: {self._server_id}")
 
     def _connect_sse(self):
         """Establish SSE connection and return context manager."""
         from mcp.client.sse import sse_client
 
         return sse_client(
-            url=self._config.url,
+            url=str(self._config.url),
             headers=self._config.headers,
             timeout=self._config.timeout,
             sse_read_timeout=self._config.sse_read_timeout,
@@ -268,7 +285,7 @@ class MCPConnectionManager:
                 self._config.timeout, read=self._config.sse_read_timeout
             ),
         )
-        return streamable_http_client(url=self._config.url, http_client=http_client)
+        return streamable_http_client(url=str(self._config.url), http_client=http_client)
 
     def _generate_server_id(self, config: MCPServerConfig) -> str:
         """Generate unique ID for connection pooling."""
@@ -315,13 +332,26 @@ class MCPConnectionManager:
             except asyncio.CancelledError:
                 pass
 
-        for conn in list(cls._connections.values()):
+        for server_id, conn in list(cls._connections.items()):
             try:
                 if conn.session:
                     await conn.session.__aexit__(None, None, None)
+            except RuntimeError as e:
+                # Expected for streamable_http - cleanup from different task
+                if "cancel scope" not in str(e):
+                    logger.debug(f"Session cleanup error for {server_id}: {e}")
+            except Exception as e:
+                logger.debug(f"Session cleanup error for {server_id}: {e}")
+
+            try:
                 if conn.transport_context:
                     await conn.transport_context.__aexit__(None, None, None)
-            except Exception:
-                pass
+            except RuntimeError as e:
+                # Expected for streamable_http - cleanup from different task
+                if "cancel scope" not in str(e):
+                    logger.debug(f"Transport cleanup error for {server_id}: {e}")
+            except Exception as e:
+                logger.debug(f"Transport cleanup error for {server_id}: {e}")
+
         cls._connections.clear()
         logger.info("Cleaned up all connections")

@@ -9,6 +9,7 @@ This demonstrates:
 
 import asyncio
 import os
+import uuid
 
 from dotenv import load_dotenv
 
@@ -82,6 +83,9 @@ async def discover_tools_from_servers():
             print(f"  Error connecting to {server_config.url}: {e}")
 
     print(f"\nTotal tools discovered: {len(all_tools)}")
+
+    # Cleanup connections
+    await MCPConnectionManager.cleanup_all()
     return all_tools
 
 
@@ -158,7 +162,9 @@ async def run_conversation():
         # Run agent
         print("Agent thinking...")
         try:
-            result = await agent.run(context)
+            # Generate unique message ID for this interaction
+            out_msg_id = str(uuid.uuid4())
+            result = await agent.run(context, out_msg_id)
 
             if result.error:
                 print(f"Agent Error: {result.error}")
@@ -202,8 +208,8 @@ async def run_conversation():
     print("Conversation ended")
     print("=" * 60)
 
-    # Optional: cleanup all connections explicitly
-    # await MCPConnectionManager.cleanup_all()
+    # Cleanup all connections
+    await MCPConnectionManager.cleanup_all()
 
 
 async def main():
