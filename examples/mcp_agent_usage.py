@@ -237,3 +237,49 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+""" 
+Examples
+Server Config Examples:
+    For SSE transport:
+        config = MCPServerConfig(
+            transport=MCPTransport.SSE,
+            url="http://localhost:8000/sse",
+            headers={"Authorization": "Bearer token"}
+        )
+
+    For Streamable HTTP transport (HTTP POST with JSON-RPC):
+        config = MCPServerConfig(
+            transport=MCPTransport.STREAMABLE_HTTP,
+            url="http://localhost:8000/mcp/",
+            headers={"Authorization": "Bearer token"}
+        )
+
+    For stdio transport:
+        config = MCPServerConfig(
+            transport=MCPTransport.STDIO,
+            command="python",
+            args=["my_mcp_server.py"],
+            env={"API_KEY": "secret"}
+        )
+
+MCP Tool Provider Examples:
+    Example:
+        # SSE with custom headers
+        config = MCPServerConfig(
+            transport=MCPTransport.SSE,
+            url="http://mcp-server/sse",
+            headers={"X-Tenant-ID": "123"}
+        )
+        provider = MCPToolProvider(config)
+
+        async with provider.connect() as tools:
+            # tools is List[MCPTool]
+            agent = MyAgent(tools=tools)
+            result = agent.run("query")
+
+        # With filtering
+        async with provider.connect(filter_fn=lambda t: t.name.startswith("search_")) as tools:
+            # Only tools matching the filter
+            ...
+"""

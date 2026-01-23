@@ -14,27 +14,7 @@ from .schemas import MCPServerConfig, MCPTransport
 class MCPToolProvider:
     """
     Provider for discovering and creating MCPTool instances from MCP servers.
-
     Handles connection lifecycle and tool filtering for both SSE and stdio transports.
-
-    Example:
-        # SSE with custom headers
-        config = MCPServerConfig(
-            transport=MCPTransport.SSE,
-            url="http://mcp-server/sse",
-            headers={"X-Tenant-ID": "123"}
-        )
-        provider = MCPToolProvider(config)
-
-        async with provider.connect() as tools:
-            # tools is List[MCPTool]
-            agent = MyAgent(tools=tools)
-            result = agent.run("query")
-
-        # With filtering
-        async with provider.connect(filter_fn=lambda t: t.name.startswith("search_")) as tools:
-            # Only tools matching the filter
-            ...
     """
 
     def __init__(self, config: MCPServerConfig):

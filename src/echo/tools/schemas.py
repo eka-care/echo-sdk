@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, HttpUrl, field_serializer
 
 
 class ElicitationComponent(str, Enum):
@@ -39,35 +39,13 @@ class MCPTransport(str, Enum):
 
 class MCPServerConfig(BaseModel):
     """
-    Configuration for connecting to an MCP server.
-
-    For SSE transport:
-        config = MCPServerConfig(
-            transport=MCPTransport.SSE,
-            url="http://localhost:8000/sse",
-            headers={"Authorization": "Bearer token"}
-        )
-
-    For Streamable HTTP transport (HTTP POST with JSON-RPC):
-        config = MCPServerConfig(
-            transport=MCPTransport.STREAMABLE_HTTP,
-            url="http://localhost:8000/mcp/",
-            headers={"Authorization": "Bearer token"}
-        )
-
-    For stdio transport:
-        config = MCPServerConfig(
-            transport=MCPTransport.STDIO,
-            command="python",
-            args=["my_mcp_server.py"],
-            env={"API_KEY": "secret"}
-        )
+    Configuration for connecting to an MCP server. Find examples below.
     """
 
     transport: MCPTransport = MCPTransport.SSE
 
     # SSE options
-    url: Optional[str] = None
+    url: Optional[HttpUrl] = None
     headers: Optional[Dict[str, str]] = None
     timeout: float = 5.0
     sse_read_timeout: float = 300.0
@@ -88,3 +66,7 @@ class MCPServerConfig(BaseModel):
         elif self.transport == MCPTransport.STDIO:
             if not self.command:
                 raise ValueError("stdio transport requires 'command'")
+
+    @field_serializer("url")
+    def serialize_url(self, url: HttpUrl) -> str:
+        return str(url)

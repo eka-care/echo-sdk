@@ -16,22 +16,8 @@ if TYPE_CHECKING:
 class MCPTool(BaseTool):
     """
     Wrapper for tools discovered from an MCP server.
-
     Takes an MCP tool definition and client session, exposing it as a
     standard BaseTool that works with all Echo LLM providers and adapters.
-
-    Example:
-        # After connecting to MCP server and listing tools
-        tools = await session.list_tools()
-        for tool in tools.tools:
-            mcp_tool = MCPTool(
-                session=session,
-                tool_name=tool.name,
-                tool_description=tool.description,
-                input_schema=tool.inputSchema
-            )
-            # Use like any other BaseTool
-            agent = MyAgent(tools=[mcp_tool])
     """
 
     def __init__(
