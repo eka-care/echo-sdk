@@ -48,6 +48,7 @@ class MCPConnectionManager:
     _connections: ClassVar[Dict[str, MCPConnection]] = {}
     _locks: ClassVar[Dict[str, asyncio.Lock]] = {}
     _cleanup_task: ClassVar[Optional[asyncio.Task]] = None
+    _tools_cache: ClassVar[Dict[str, List[MCPTool]]] = {}
 
     def __init__(self, config: MCPServerConfig):
         """
@@ -78,7 +79,7 @@ class MCPConnectionManager:
         tool_names: Optional[List[str]] = None,
     ) -> List[MCPTool]:
         """
-        Get tools from server, connecting if needed.
+        Get tools from server, connecting if needed. Uses caching to avoid repeated discovery.
 
         Args:
             filter_fn: Optional function to filter tools
@@ -92,32 +93,41 @@ class MCPConnectionManager:
         """
         connection = await self._get_or_create_connection()
 
-        # Discover tools from server (inlined from _discover_tools)
-        tools_response = await connection.session.list_tools()
-        tools = []
+        async with self._locks[self._server_id]:
+            # Check cache first
+            if self._server_id not in self._tools_cache:
+                # Discover and cache all tools
+                tools_response = await connection.session.list_tools()
+                all_tools = []
+                for tool in tools_response.tools:
+                    mcp_tool = MCPTool(
+                        manager=self,
+                        server_id=self._server_id,
+                        tool_name=tool.name,
+                        tool_description=tool.description or "",
+                        input_schema=tool.inputSchema if hasattr(tool, "inputSchema") else None,
+                    )
+                    all_tools.append(mcp_tool)
+                self._tools_cache[self._server_id] = all_tools
+                logger.info(f"Discovered and cached {len(all_tools)} tools from {self._server_id}")
+
+            cached_tools = self._tools_cache[self._server_id]
+
+        # Apply filters outside lock (filters are read-only)
+        if not filter_fn and not tool_names:
+            return cached_tools
+
         tool_names_set = set(tool_names) if tool_names else None
+        return [
+            t for t in cached_tools
+            if (not tool_names_set or t.name in tool_names_set)
+            and (not filter_fn or filter_fn(t))
+        ]
 
-        for tool in tools_response.tools:
-            # Apply name filter
-            if tool_names_set and tool.name not in tool_names_set:
-                continue
-
-            # Apply custom filter
-            if filter_fn and not filter_fn(tool):
-                continue
-
-            # Create MCPTool wrapper
-            mcp_tool = MCPTool(
-                manager=self,
-                server_id=self._server_id,
-                tool_name=tool.name,
-                tool_description=tool.description or "",
-                input_schema=tool.inputSchema if hasattr(tool, "inputSchema") else None,
-            )
-            tools.append(mcp_tool)
-
-        logger.info(f"Discovered {len(tools)} tools from {self._server_id}")
-        return tools
+    async def refresh_tools_cache(self) -> None:
+        """Force refresh of tools cache for this server."""
+        async with self._locks[self._server_id]:
+            self._tools_cache.pop(self._server_id, None)
 
     async def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
         """
@@ -156,6 +166,7 @@ class MCPConnectionManager:
                     except Exception as e:
                         logger.error(f"Error closing connection: {e}")
                     del self._connections[self._server_id]
+                    self._tools_cache.pop(self._server_id, None)  # Clear tools cache too
 
             # Get fresh connection and retry once
             try:
@@ -314,6 +325,7 @@ class MCPConnectionManager:
                         if server_id in self._connections:
                             await self._close_connection(self._connections[server_id])
                             del self._connections[server_id]
+                            self._tools_cache.pop(server_id, None)  # Clear tools cache too
                             logger.info(f"Cleaned up expired connection: {server_id}")
 
             except asyncio.CancelledError:
@@ -354,4 +366,5 @@ class MCPConnectionManager:
                 logger.debug(f"Transport cleanup error for {server_id}: {e}")
 
         cls._connections.clear()
+        cls._tools_cache.clear()  # Clear tools cache too
         logger.info("Cleaned up all connections")
