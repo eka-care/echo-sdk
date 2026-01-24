@@ -39,7 +39,11 @@ class BaseElicitationTool(BaseTool):
         pass
 
     async def run(
-        self, component: str, _meta: Optional[Dict[str, Any]] = None, **kwargs
+        self,
+        component: str,
+        _meta: Optional[Dict[str, Any]] = None,
+        tool_context: Optional[Dict[str, Any]] = None,
+        **kwargs,
     ) -> ElicitationDetails:
         """Return JSON string of ElicitationResponse."""
         # Find the matching enum for the component string

@@ -65,7 +65,7 @@ class BaseLLM(ABC):
         self,
         tool_map: Dict[str, BaseTool],
         tool_call: ToolCall,
-        system_input: Dict[str, Any],
+        tool_context: Dict[str, Any],
     ) -> ToolResult | ElicitationResponse:
         """
         Args:
@@ -85,7 +85,7 @@ class BaseLLM(ABC):
                 )
 
             is_elicitation = tool.is_elicitation
-            full_input = {**tool_call.tool_input, **system_input}
+            full_input = {**tool_call.tool_input, **{"tool_context": tool_context}}
             if is_elicitation:
                 elicitation_data = await tool.run(**full_input)
                 return ElicitationResponse(

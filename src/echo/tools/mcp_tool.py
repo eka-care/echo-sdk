@@ -59,7 +59,7 @@ class MCPTool(BaseTool):
         """
         return self._input_schema
 
-    async def run(self, **kwargs) -> str:
+    async def run(self, tool_context: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         """
         Execute the MCP tool asynchronously via manager with automatic retry.
 
@@ -70,6 +70,7 @@ class MCPTool(BaseTool):
             str: Tool result from MCP server
         """
         try:
+            # TODO: if you need any params from tool context, figure it out here
             result = await self._manager.execute_tool(
                 tool_name=self.name, arguments=kwargs
             )
