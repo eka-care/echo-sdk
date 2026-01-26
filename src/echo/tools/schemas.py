@@ -72,8 +72,8 @@ class MCPServerConfig(BaseModel):
     # SSE options
     url: Optional[HttpUrl] = None
     headers: Optional[Dict[str, str]] = None
-    timeout: float = 5.0
-    sse_read_timeout: float = 300.0
+    timeout: int = 5
+    sse_read_timeout: int = 300
 
     # stdio options
     command: Optional[str] = None
