@@ -81,7 +81,7 @@ class MCPServerConfig(BaseModel):
     env: Optional[Dict[str, str]] = None
 
     # Connection management
-    connection_ttl: float = 600.0  # TTL for cleanup (10 minutes)
+    connection_ttl: int = 600  # TTL for cleanup (10 minutes)
 
     def validate(self) -> None:
         """Validate configuration based on transport type."""
