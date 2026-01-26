@@ -383,7 +383,7 @@ async def stream_example():
 Connect to Model Context Protocol servers:
 
 ```python
-from echo.tools import MCPServerConfig, MCPToolProvider, MCPTransport
+from echo.tools import MCPServerConfig, MCPConnectionManager, MCPTransport
 
 async def use_mcp_tools():
     # Configure MCP server
@@ -393,20 +393,21 @@ async def use_mcp_tools():
         headers={"Authorization": "Bearer token"}
     )
 
-    # Discover and use tools
-    provider = MCPToolProvider(server_config)
-    async with provider.connect() as tools:
-        print(f"Found {len(tools)} tools")
-        for tool in tools:
-            print(f"  - {tool.name}: {tool.description}")
+    # Discover and use tools (with automatic connection management)
+    manager = MCPConnectionManager(server_config)
+    tools = await manager.get_tools()
 
-        # Use tools with an agent
-        agent = GenericAgent(
-            agent_config=config,
-            llm_config=LLMConfig(),
-            tools=tools
-        )
-        result = await agent.run(context)
+    print(f"Found {len(tools)} tools")
+    for tool in tools:
+        print(f"  - {tool.name}: {tool.description}")
+
+    # Use tools with an agent
+    agent = GenericAgent(
+        agent_config=config,
+        llm_config=LLMConfig(),
+        tools=tools
+    )
+    result = await agent.run(context)
 ```
 
 ## Conversation Context

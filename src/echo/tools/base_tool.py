@@ -5,7 +5,7 @@ Provides a framework-agnostic interface for tools with adapters.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 class BaseTool(ABC):

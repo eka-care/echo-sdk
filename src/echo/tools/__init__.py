@@ -2,15 +2,31 @@
 
 from .base_elicitation import BaseElicitationTool
 from .base_tool import BaseTool
-from .mcp_provider import MCPServerConfig, MCPToolProvider, MCPTransport
+from .mcp_connection_manager import MCPConnection, MCPConnectionManager
 from .mcp_tool import MCPTool
-from .schemas import ElicitationDetails, ElicitationResponse
+from .schemas import (
+    ElicitationDetails,
+    ElicitationResponse,
+    MCPConfigError,
+    MCPConnectionError,
+    MCPError,
+    MCPExecutionError,
+    MCPServerConfig,
+    MCPTransport,
+)
 
 __all__ = [
     "BaseElicitationTool",
     "BaseTool",
+    "MCPConnection",
+    "MCPConnectionManager",
     "MCPServerConfig",
-    "MCPToolProvider",
     "MCPTransport",
     "MCPTool",
+    "MCPError",
+    "MCPConfigError",
+    "MCPConnectionError",
+    "MCPExecutionError",
+    "ElicitationDetails",
+    "ElicitationResponse",
 ]
