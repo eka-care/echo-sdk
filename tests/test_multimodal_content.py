@@ -1,6 +1,7 @@
 """Unit tests for ImageContent and DocumentContent support."""
 
 import base64
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -184,11 +185,34 @@ class TestBedrockConversion:
         assert img_block["image"]["format"] == "png"
         assert img_block["image"]["source"]["bytes"] == base64.b64decode(B64_PNG)
 
+    @patch("echo.models.user_conversation._download_url_as_bytes")
+    def test_image_url(self, mock_download):
+        fake_bytes = b"\x89PNG fake image data"
+        mock_download.return_value = fake_bytes
+        result = _user_msg_with_image(ContentSourceType.URL, url="https://example.com/i.png").to_bedrock_message()
+        img_block = result["content"][1]
+        assert "image" in img_block
+        assert img_block["image"]["format"] == "png"
+        assert img_block["image"]["source"]["bytes"] == fake_bytes
+        mock_download.assert_called_once_with("https://example.com/i.png")
+
     def test_document_base64(self):
         result = _user_msg_with_doc(ContentSourceType.BASE64, data=B64_PDF).to_bedrock_message()
         doc_block = result["content"][1]
         assert "document" in doc_block
         assert doc_block["document"]["name"] == "test.pdf"
+
+    @patch("echo.models.user_conversation._download_url_as_bytes")
+    def test_document_url(self, mock_download):
+        fake_bytes = b"%PDF- fake pdf data"
+        mock_download.return_value = fake_bytes
+        result = _user_msg_with_doc(ContentSourceType.URL, url="https://example.com/doc.pdf").to_bedrock_message()
+        doc_block = result["content"][1]
+        assert "document" in doc_block
+        assert doc_block["document"]["format"] == "pdf"
+        assert doc_block["document"]["source"]["bytes"] == fake_bytes
+        assert doc_block["document"]["name"] == "test.pdf"
+        mock_download.assert_called_once_with("https://example.com/doc.pdf")
 
 
 class TestGeminiConversion:

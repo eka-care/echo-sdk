@@ -5,11 +5,21 @@ import uuid
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
+import httpx
 from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 from echo.models.providers import Provider
 
 logger = logging.getLogger(__name__)
+
+
+def _download_url_as_bytes(url: str) -> bytes:
+    """Download content from a URL and return raw bytes."""
+    with httpx.Client(timeout=30.0) as client:
+        resp = client.get(str(url))
+        resp.raise_for_status()
+        return resp.content
+
 
 # --------- ENUMS ---------
 
@@ -343,30 +353,28 @@ class Message(BaseModel):
                     }
                 )
             elif isinstance(item, ImageContent):
-                if item.source_type == ContentSourceType.URL:
-                    logger.warning(
-                        "Bedrock does not support image URLs directly; provide base64 data instead"
-                    )
-                    continue
                 fmt = item.media_type.split("/")[-1]
+                if item.source_type == ContentSourceType.URL:
+                    img_bytes = _download_url_as_bytes(str(item.url))
+                else:
+                    img_bytes = base64.b64decode(item.data)
                 blocks.append(
                     {
                         "image": {
                             "format": fmt,
-                            "source": {"bytes": base64.b64decode(item.data)},
+                            "source": {"bytes": img_bytes},
                         }
                     }
                 )
             elif isinstance(item, DocumentContent):
-                if item.source_type == ContentSourceType.URL:
-                    logger.warning(
-                        "Bedrock does not support document URLs directly; provide base64 data instead"
-                    )
-                    continue
                 fmt = item.media_type.split("/")[-1]
+                if item.source_type == ContentSourceType.URL:
+                    doc_bytes = _download_url_as_bytes(str(item.url))
+                else:
+                    doc_bytes = base64.b64decode(item.data)
                 doc: Dict[str, Any] = {
                     "format": fmt,
-                    "source": {"bytes": base64.b64decode(item.data)},
+                    "source": {"bytes": doc_bytes},
                 }
                 if item.name:
                     doc["name"] = item.name
