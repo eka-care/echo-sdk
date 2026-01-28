@@ -9,10 +9,11 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel
 
+
 class LLMConfig(BaseModel):
     """LLM provider configuration. Defaults to Bedrock Haiku."""
 
-    provider: Literal["bedrock", "openai", "anthropic"] = os.getenv(
+    provider: Literal["bedrock", "openai", "anthropic", "gemini"] = os.getenv(
         "ECHO_DEFAULT_LLM_PROVIDER", "bedrock"
     )
     model: str = os.getenv(

@@ -5,3 +5,4 @@ class Provider(str, Enum):
     ANTHROPIC = "anthropic"
     OPENAI = "openai"
     BEDROCK = "bedrock"
+    GEMINI = "gemini"

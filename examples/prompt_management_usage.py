@@ -40,10 +40,10 @@ async def fetch_prompts():
 
     try:
         # Fetch a specific version
-        prompt_v1 = await provider.get_prompt(prompt_name(), version=1)
+        prompt_v1 = await provider.get_prompt(prompt_name(), version="1")
         print(f"Version 1: {prompt_v1.version}")
 
-        prompt_v2 = await provider.get_prompt(prompt_name(), version=2)
+        prompt_v2 = await provider.get_prompt(prompt_name(), version="2")
         print(f"Version 2: {prompt_v2.version}")
 
         # Fetch latest (no version specified)
@@ -75,7 +75,7 @@ async def create_agent_config_from_prompt():
         # Fetch prompt with variables - AgentConfig is ready to use
         prompt = await provider.get_prompt(
             prompt_name(),
-            version=3,
+            version='3',
             prompt_variables={"specialty": "cardiology"},
         )
 

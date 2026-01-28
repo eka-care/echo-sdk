@@ -75,8 +75,19 @@ def get_llm(config: LLMConfig) -> BaseLLM:
                 "anthropic is required for Anthropic. Install with: pip install anthropic"
             )
 
+    elif provider == "gemini":
+        try:
+            from .gemini import GeminiLLM
+
+            return GeminiLLM(config)
+        except ImportError:
+            raise ImportError(
+                "google-generativeai is required for Gemini. "
+                "Install with: pip install google-generativeai"
+            )
+
     else:
         raise ValueError(
             f"Unsupported LLM provider: {provider}. "
-            f"Supported providers: bedrock, openai, anthropic"
+            f"Supported providers: bedrock, openai, anthropic, gemini"
         )

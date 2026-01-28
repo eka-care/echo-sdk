@@ -12,7 +12,7 @@ class FetchedPrompt(BaseModel):
     """Prompt with ready-to-use AgentConfig."""
 
     name: str
-    version: Optional[int] = None
+    version: Optional[str] = None
     agent_config: AgentConfig  # Ready to use, already compiled
 
     model_config = {"arbitrary_types_allowed": True}
@@ -31,7 +31,7 @@ class BasePromptProvider(ABC):
     async def get_prompt(
         self,
         name: str,
-        version: Optional[int] = None,
+        version: Optional[str] = None,
         prompt_variables: Optional[Dict[str, Any]] = None,
         **kwargs: Any,
     ) -> FetchedPrompt:
@@ -40,7 +40,7 @@ class BasePromptProvider(ABC):
 
         Args:
             name: Prompt name/identifier
-            version: Optional version number
+            version: Optional version number as string
             **variables: Variables to compile the prompt with
 
         Returns:

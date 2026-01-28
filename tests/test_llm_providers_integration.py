@@ -179,6 +179,51 @@ class TestOpenAILLMIntegration:
         assert len(response.verbose) > 0
 
 
+class TestGeminiLLMIntegration:
+    """Integration tests for Gemini LLM provider."""
+
+    @pytest.mark.asyncio
+    async def test_gemini_simple_response(self):
+        """Test that a simple text response populates verbose."""
+        config = LLMConfig(provider="gemini", model="gemini-2.0-flash")
+        llm = get_llm(config)
+
+        context = ConversationContext()
+        context.add_message(
+            Message(
+                role=MessageRole.USER,
+                content=[TextMessage(text="Say hello in one sentence.")],
+            )
+        )
+
+        response, _ = await llm.invoke(context)
+
+        assert isinstance(response, LLMResponse)
+        assert response.text != ""
+        assert len(response.verbose) > 0
+        assert response.verbose[0].type == "text"
+
+    @pytest.mark.asyncio
+    async def test_gemini_tool_call_response(self):
+        """Test that tool calls are captured in verbose output."""
+        config = LLMConfig(provider="gemini", model="gemini-2.0-flash")
+        llm = get_llm(config)
+
+        context = ConversationContext()
+        context.add_message(
+            Message(
+                role=MessageRole.USER,
+                content=[TextMessage(text="What time is it right now?")],
+            )
+        )
+
+        tool = SimpleMockTool()
+        response, _ = await llm.invoke(context, tools=[tool])
+
+        assert isinstance(response, LLMResponse)
+        assert len(response.verbose) > 0
+
+
 class TestAnthropicLLMIntegration:
     """Integration tests for Anthropic LLM provider."""
 
