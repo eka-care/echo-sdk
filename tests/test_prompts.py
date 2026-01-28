@@ -7,6 +7,7 @@ functionality of the prompt management system.
 
 import pytest
 
+from echo.agents.config import AgentConfig, PersonaConfig, TaskConfig
 from echo.prompts import (
     BasePromptProvider,
     FetchedPrompt,
@@ -14,7 +15,6 @@ from echo.prompts import (
     get_prompt_provider,
     reset_prompt_provider,
 )
-from echo.agents.config import AgentConfig, PersonaConfig, TaskConfig
 
 
 class TestFetchedPrompt:
@@ -41,10 +41,10 @@ class TestFetchedPrompt:
         )
         prompt = FetchedPrompt(
             name="test-prompt",
-            version=3,
+            version="3",
             agent_config=config,
         )
-        assert prompt.version == 3
+        assert prompt.version == "3"
 
     def test_agent_config_access(self):
         """Test accessing agent_config fields."""
@@ -134,7 +134,7 @@ class MockPromptProvider(BasePromptProvider):
 
         return FetchedPrompt(
             name=name,
-            version=version,
+            version=str(version),
             agent_config=AgentConfig(
                 task=TaskConfig(description=description, expected_output="output"),
             ),
@@ -161,9 +161,9 @@ class TestBasePromptProvider:
         """Test get_prompt with version parameter."""
         provider = MockPromptProvider()
 
-        prompt = await provider.get_prompt("test-prompt", version=2)
+        prompt = await provider.get_prompt("test-prompt", version="2")
 
-        assert prompt.version == 2
+        assert prompt.version == "2"
         assert prompt.agent_config is not None
 
     @pytest.mark.asyncio

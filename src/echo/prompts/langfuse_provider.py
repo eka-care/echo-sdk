@@ -44,7 +44,7 @@ class LangfusePromptProvider(BasePromptProvider):
     async def get_prompt(
         self,
         name: str,
-        version: Optional[int] = None,
+        version: Optional[str] = None,
         prompt_variables: Optional[Dict[str, Any]] = None,
     ) -> FetchedPrompt:
         """
@@ -64,7 +64,7 @@ class LangfusePromptProvider(BasePromptProvider):
         try:
             kwargs: dict[str, Any] = {}
             if version is not None:
-                kwargs["version"] = version
+                kwargs["version"] = int(version)
 
             # Langfuse SDK is sync, run in executor
             loop = asyncio.get_event_loop()
@@ -92,7 +92,7 @@ class LangfusePromptProvider(BasePromptProvider):
 
             return FetchedPrompt(
                 name=name,
-                version=getattr(langfuse_prompt, "version", None),
+                version=str(getattr(langfuse_prompt, "version", "")) or None,
                 agent_config=agent_config,
             )
 

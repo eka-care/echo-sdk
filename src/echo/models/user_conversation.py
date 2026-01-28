@@ -120,6 +120,8 @@ class Message(BaseModel):
             return messages[0] if messages else {}
         elif format == Provider.BEDROCK:
             return self.to_bedrock_message()
+        elif format == Provider.GEMINI:
+            return self.to_gemini_message()
 
         return self.model_dump()
 
@@ -234,6 +236,29 @@ class Message(BaseModel):
         role = "user" if self.role == MessageRole.TOOL else self.role.value
         return {"role": role, "content": blocks}
 
+    def to_gemini_message(self) -> Dict[str, Any]:
+        """Convert to Google Gemini message format."""
+        parts = []
+        for item in self.content:
+            if isinstance(item, TextMessage):
+                parts.append({"text": item.text})
+            elif isinstance(item, ToolCall):
+                parts.append({
+                    "function_call": {
+                        "name": item.tool_name,
+                        "args": item.tool_input,
+                    }
+                })
+            elif isinstance(item, ToolResult):
+                parts.append({
+                    "function_response": {
+                        "name": item.tool_id,
+                        "response": {"result": str(item.result)},
+                    }
+                })
+        role = "model" if self.role == MessageRole.ASSISTANT else "user"
+        return {"role": role, "parts": parts}
+
 
 # --------- CONVERSATION CONTEXT ---------
 
@@ -311,6 +336,15 @@ class ConversationContext(BaseModel):
         for msg in self.messages:
             msg_dict = msg.to_bedrock_message()
             if msg_dict and msg_dict.get("content"):
+                result.append(msg_dict)
+        return result
+
+    def to_gemini_messages(self) -> List[Dict[str, Any]]:
+        """Convert to Google Gemini message format."""
+        result = []
+        for msg in self.messages:
+            msg_dict = msg.to_gemini_message()
+            if msg_dict and msg_dict.get("parts"):
                 result.append(msg_dict)
         return result
 
