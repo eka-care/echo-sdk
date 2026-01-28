@@ -5,20 +5,12 @@ import uuid
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-import httpx
 from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 from echo.models.providers import Provider
+from echo.utils.download import download_url_as_bytes
 
 logger = logging.getLogger(__name__)
-
-
-def _download_url_as_bytes(url: str) -> bytes:
-    """Download content from a URL and return raw bytes."""
-    with httpx.Client(timeout=30.0) as client:
-        resp = client.get(str(url))
-        resp.raise_for_status()
-        return resp.content
 
 
 # --------- ENUMS ---------
@@ -355,7 +347,7 @@ class Message(BaseModel):
             elif isinstance(item, ImageContent):
                 fmt = item.media_type.split("/")[-1]
                 if item.source_type == ContentSourceType.URL:
-                    img_bytes = _download_url_as_bytes(str(item.url))
+                    img_bytes = download_url_as_bytes(str(item.url))
                 else:
                     img_bytes = base64.b64decode(item.data)
                 blocks.append(
@@ -369,7 +361,7 @@ class Message(BaseModel):
             elif isinstance(item, DocumentContent):
                 fmt = item.media_type.split("/")[-1]
                 if item.source_type == ContentSourceType.URL:
-                    doc_bytes = _download_url_as_bytes(str(item.url))
+                    doc_bytes = download_url_as_bytes(str(item.url))
                 else:
                     doc_bytes = base64.b64decode(item.data)
                 doc: Dict[str, Any] = {
