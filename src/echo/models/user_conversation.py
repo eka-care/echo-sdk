@@ -1,11 +1,15 @@
+import base64
 import json
+import logging
 import uuid
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 from echo.models.providers import Provider
+
+logger = logging.getLogger(__name__)
 
 # --------- ENUMS ---------
 
@@ -24,6 +28,15 @@ class MessageType(str, Enum):
     TEXT = "text"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
+    IMAGE = "image"
+    DOCUMENT = "document"
+
+
+class ContentSourceType(str, Enum):
+    """Source type for media content."""
+
+    BASE64 = "base64"
+    URL = "url"
 
 
 # --------- CONTENT TYPES ---------
@@ -53,8 +66,45 @@ class ToolResult(BaseModel):
     result: Any
 
 
+class ImageContent(BaseModel):
+    """Image content block for multimodal messages."""
+
+    type: MessageType = MessageType.IMAGE
+    media_type: Literal["image/jpeg", "image/png", "image/gif", "image/webp"]
+    source_type: ContentSourceType
+    data: Optional[str] = None
+    url: Optional[HttpUrl] = None
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        if self.source_type == ContentSourceType.URL and not self.url:
+            raise ValueError("url is required when source_type is 'url'")
+        if self.source_type == ContentSourceType.BASE64 and not self.data:
+            raise ValueError("data is required when source_type is 'base64'")
+        return self
+
+
+class DocumentContent(BaseModel):
+    """Document content block (e.g. PDF) for multimodal messages."""
+
+    type: MessageType = MessageType.DOCUMENT
+    media_type: Literal["application/pdf"] = "application/pdf"
+    source_type: ContentSourceType
+    data: Optional[str] = None
+    url: Optional[HttpUrl] = None
+    name: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        if self.source_type == ContentSourceType.URL and not self.url:
+            raise ValueError("url is required when source_type is 'url'")
+        if self.source_type == ContentSourceType.BASE64 and not self.data:
+            raise ValueError("data is required when source_type is 'base64'")
+        return self
+
+
 # Type alias for content items
-ContentItem = Union[TextMessage, ToolCall, ToolResult]
+ContentItem = Union[TextMessage, ToolCall, ToolResult, ImageContent, DocumentContent]
 
 
 class LLMUsageMetrics(BaseModel):
@@ -98,7 +148,9 @@ class Message(BaseModel):
 
         if self.role == MessageRole.USER:
             if has_tool_call or has_tool_result:
-                raise ValueError("USER messages can only contain TextMessage")
+                raise ValueError(
+                    "USER messages can only contain TextMessage, ImageContent, or DocumentContent"
+                )
 
         elif self.role == MessageRole.ASSISTANT:
             if has_tool_result:
@@ -148,6 +200,26 @@ class Message(BaseModel):
                         "content": str(item.result),
                     }
                 )
+            elif isinstance(item, ImageContent):
+                if item.source_type == ContentSourceType.URL:
+                    source = {"type": "url", "url": str(item.url)}
+                else:
+                    source = {
+                        "type": "base64",
+                        "media_type": item.media_type,
+                        "data": item.data,
+                    }
+                blocks.append({"type": "image", "source": source})
+            elif isinstance(item, DocumentContent):
+                if item.source_type == ContentSourceType.URL:
+                    source = {"type": "url", "url": str(item.url)}
+                else:
+                    source = {
+                        "type": "base64",
+                        "media_type": item.media_type,
+                        "data": item.data,
+                    }
+                blocks.append({"type": "document", "source": source})
         # Anthropic expects tool results in 'user' role messages
         role = "user" if self.role == MessageRole.TOOL else self.role.value
         return {"role": role, "content": blocks}
@@ -186,14 +258,52 @@ class Message(BaseModel):
                 ]
             messages.append(msg)
 
-        # User text message
-        elif self.role == MessageRole.USER and text_parts:
-            messages.append(
-                {
-                    "role": "user",
-                    "content": " ".join(t.text for t in text_parts),
-                }
-            )
+        # User message (text and/or multimodal)
+        elif self.role == MessageRole.USER:
+            media_parts = [
+                c
+                for c in self.content
+                if isinstance(c, (ImageContent, DocumentContent))
+            ]
+            if media_parts:
+                content_blocks = []
+                for t in text_parts:
+                    content_blocks.append({"type": "text", "text": t.text})
+                for item in media_parts:
+                    if isinstance(item, ImageContent):
+                        if item.source_type == ContentSourceType.URL:
+                            url_str = str(item.url)
+                        else:
+                            url_str = f"data:{item.media_type};base64,{item.data}"
+                        content_blocks.append(
+                            {"type": "image_url", "image_url": {"url": url_str}}
+                        )
+                    elif isinstance(item, DocumentContent):
+                        if item.source_type == ContentSourceType.URL:
+                            content_blocks.append(
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": str(item.url)},
+                                }
+                            )
+                        else:
+                            logger.warning(
+                                "OpenAI has limited support for base64 PDF documents"
+                            )
+                            content_blocks.append(
+                                {
+                                    "type": "text",
+                                    "text": f"[Document: {item.name or 'document.pdf'}]",
+                                }
+                            )
+                messages.append({"role": "user", "content": content_blocks})
+            elif text_parts:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": " ".join(t.text for t in text_parts),
+                    }
+                )
 
         # Tool results become separate messages (OpenAI requires this)
         for tr in tool_results:
@@ -232,6 +342,35 @@ class Message(BaseModel):
                         }
                     }
                 )
+            elif isinstance(item, ImageContent):
+                if item.source_type == ContentSourceType.URL:
+                    logger.warning(
+                        "Bedrock does not support image URLs directly; provide base64 data instead"
+                    )
+                    continue
+                fmt = item.media_type.split("/")[-1]
+                blocks.append(
+                    {
+                        "image": {
+                            "format": fmt,
+                            "source": {"bytes": base64.b64decode(item.data)},
+                        }
+                    }
+                )
+            elif isinstance(item, DocumentContent):
+                if item.source_type == ContentSourceType.URL:
+                    logger.warning(
+                        "Bedrock does not support document URLs directly; provide base64 data instead"
+                    )
+                    continue
+                fmt = item.media_type.split("/")[-1]
+                doc: Dict[str, Any] = {
+                    "format": fmt,
+                    "source": {"bytes": base64.b64decode(item.data)},
+                }
+                if item.name:
+                    doc["name"] = item.name
+                blocks.append({"document": doc})
         # Bedrock expects tool results in 'user' role messages
         role = "user" if self.role == MessageRole.TOOL else self.role.value
         return {"role": role, "content": blocks}
@@ -243,19 +382,61 @@ class Message(BaseModel):
             if isinstance(item, TextMessage):
                 parts.append({"text": item.text})
             elif isinstance(item, ToolCall):
-                parts.append({
-                    "function_call": {
-                        "name": item.tool_name,
-                        "args": item.tool_input,
+                parts.append(
+                    {
+                        "function_call": {
+                            "name": item.tool_name,
+                            "args": item.tool_input,
+                        }
                     }
-                })
+                )
             elif isinstance(item, ToolResult):
-                parts.append({
-                    "function_response": {
-                        "name": item.tool_id,
-                        "response": {"result": str(item.result)},
+                parts.append(
+                    {
+                        "function_response": {
+                            "name": item.tool_id,
+                            "response": {"result": str(item.result)},
+                        }
                     }
-                })
+                )
+            elif isinstance(item, ImageContent):
+                if item.source_type == ContentSourceType.URL:
+                    parts.append(
+                        {
+                            "file_data": {
+                                "mime_type": item.media_type,
+                                "file_uri": str(item.url),
+                            }
+                        }
+                    )
+                else:
+                    parts.append(
+                        {
+                            "inline_data": {
+                                "mime_type": item.media_type,
+                                "data": item.data,
+                            }
+                        }
+                    )
+            elif isinstance(item, DocumentContent):
+                if item.source_type == ContentSourceType.URL:
+                    parts.append(
+                        {
+                            "file_data": {
+                                "mime_type": item.media_type,
+                                "file_uri": str(item.url),
+                            }
+                        }
+                    )
+                else:
+                    parts.append(
+                        {
+                            "inline_data": {
+                                "mime_type": item.media_type,
+                                "data": item.data,
+                            }
+                        }
+                    )
         role = "model" if self.role == MessageRole.ASSISTANT else "user"
         return {"role": role, "parts": parts}
 
