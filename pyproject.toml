@@ -48,7 +48,6 @@ all = [
     "openai>=1.0.0",
     "anthropic>=0.18.0",
     "google-generativeai>=0.8.0",
-    "crewai>=1.6.1",
     "mcp>=1.8.0",
     "langfuse>=2.0.0",
 ]
