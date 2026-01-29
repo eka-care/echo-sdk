@@ -25,6 +25,11 @@ class LLMConfig(BaseModel):
     # make this max of 10 calls not more than that
     max_iterations: int = int(os.getenv("ECHO_DEFAULT_LLM_MAX_ITERATIONS", 10))
 
+    # Optional user-provided API keys (falls back to env vars if None)
+    api_key: Optional[str] = None  # For OpenAI, Anthropic, Gemini
+    aws_access_key_id: Optional[str] = None  # For Bedrock
+    aws_secret_access_key: Optional[str] = None  # For Bedrock
+
     def to_crewai_llm(self) -> Any:
         """Convert to CrewAI LLM instance."""
         try:

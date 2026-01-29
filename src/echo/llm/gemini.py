@@ -36,9 +36,10 @@ class GeminiLLM(BaseLLM):
         if self._client is None:
             from google import genai
 
-            api_key = os.getenv("GOOGLE_API_KEY")
+            # Use config api_key if provided, otherwise fall back to GOOGLE_API_KEY env var
+            api_key = self.config.api_key or os.getenv("GOOGLE_API_KEY")
             if not api_key:
-                raise ValueError("GOOGLE_API_KEY environment variable is required for Gemini")
+                raise ValueError("API key required for Gemini: provide api_key in config or set GOOGLE_API_KEY env var")
             self._client = genai.Client(api_key=api_key)
         return self._client
 

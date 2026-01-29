@@ -37,7 +37,13 @@ class BedrockLLM(BaseLLM):
         if self._client is None:
             import boto3
 
-            self._client = boto3.client("bedrock-runtime", region_name=self.region)
+            # Use config credentials if provided, otherwise falls back to boto3 default chain
+            # (env vars AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, ~/.aws/credentials, IAM role, etc.)
+            kwargs = {"region_name": self.region}
+            if self.config.aws_access_key_id and self.config.aws_secret_access_key:
+                kwargs["aws_access_key_id"] = self.config.aws_access_key_id
+                kwargs["aws_secret_access_key"] = self.config.aws_secret_access_key
+            self._client = boto3.client("bedrock-runtime", **kwargs)
         return self._client
 
     def _parse_response(self, response, msg_id: str) -> Message:

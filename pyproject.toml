@@ -1,6 +1,6 @@
 [project]
 name = "echo"
-version = "0.1.8"
+version = "0.1.9"
 description = "Framework-agnostic medical Agent building SDK with multi-provider LLM and Tools support"
 readme = "README.md"
 license = "MIT"
@@ -33,7 +33,7 @@ Issues = "https://github.com/eka-care/echo-sdk/issues"
 bedrock = ["boto3>=1.38.23"]
 openai = ["openai>=1.0.0"]
 anthropic = ["anthropic>=0.18.0"]
-gemini = ["google-generativeai>=0.8.0"]
+gemini = ["google-genai>=1.0.0"]
 
 # Framework Integrations
 crewai = ["crewai>=1.6.1"]
@@ -47,7 +47,7 @@ all = [
     "boto3>=1.38.23",
     "openai>=1.0.0",
     "anthropic>=0.18.0",
-    "google-generativeai>=0.8.0",
+    "google-genai>=1.0.0",
     "mcp>=1.8.0",
     "langfuse>=2.0.0",
 ]

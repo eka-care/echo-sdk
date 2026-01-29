@@ -36,7 +36,11 @@ class OpenAILLM(BaseLLM):
         if self._client is None:
             from openai import OpenAI
 
-            self._client = OpenAI()
+            # Use config api_key if provided, otherwise falls back to OPENAI_API_KEY env var
+            if self.config.api_key:
+                self._client = OpenAI(api_key=self.config.api_key)
+            else:
+                self._client = OpenAI()
         return self._client
 
     def _parse_response(self, response, msg_id: str) -> Message:
@@ -122,7 +126,7 @@ class OpenAILLM(BaseLLM):
             # Parse response into Message
             assistant_msg = self._parse_response(response, msg_id)
             context.add_message(assistant_msg)
-            messages.append(assistant_msg.to_openai_messages())
+            messages.extend(assistant_msg.to_openai_messages())
 
             tool_results = []
             for content_item in assistant_msg.content:
@@ -149,7 +153,7 @@ class OpenAILLM(BaseLLM):
                             msg_id=msg_id,
                         )
                         context.add_message(result_msg)
-                        messages.append(result_msg.to_openai_messages())
+                        messages.extend(result_msg.to_openai_messages())
                         tool_results.append(tool_result)
                         final_response.pending_tool_result_processing = True
 
@@ -273,9 +277,7 @@ class OpenAILLM(BaseLLM):
                             if idx not in tool_calls_map:
                                 # New tool call starting
                                 tool_name = (
-                                    tc_delta.function.name
-                                    if tc_delta.function
-                                    else ""
+                                    tc_delta.function.name if tc_delta.function else ""
                                 )
                                 tool = tool_map.get(tool_name)
                                 is_elicitation = tool.is_elicitation if tool else False
@@ -285,7 +287,11 @@ class OpenAILLM(BaseLLM):
                                     "arguments": "",
                                     "is_elicitation": is_elicitation,
                                 }
-                                if tc_delta.id and tc_delta.function and not is_elicitation:
+                                if (
+                                    tc_delta.id
+                                    and tc_delta.function
+                                    and not is_elicitation
+                                ):
                                     yield StreamEvent(
                                         type=StreamEventType.TOOL_CALL_START,
                                         details={
@@ -363,7 +369,7 @@ class OpenAILLM(BaseLLM):
                         usage=usage_metrics,
                     )
                     context.add_message(llm_message)
-                    messages.append(llm_message.to_openai_messages())
+                    messages.extend(llm_message.to_openai_messages())
 
                 # OpenAI requires each tool result as a separate message
                 if tool_results:
@@ -374,7 +380,7 @@ class OpenAILLM(BaseLLM):
                             msg_id=msg_id,
                         )
                         context.add_message(result_msg)
-                        messages.append(result_msg.to_openai_messages())
+                        messages.extend(result_msg.to_openai_messages())
                     final_response.pending_tool_result_processing = True
                 else:
                     final_response.pending_tool_result_processing = False

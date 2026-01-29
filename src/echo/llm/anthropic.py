@@ -36,7 +36,11 @@ class AnthropicLLM(BaseLLM):
         if self._client is None:
             import anthropic
 
-            self._client = anthropic.Anthropic()
+            # Use config api_key if provided, otherwise falls back to ANTHROPIC_API_KEY env var
+            if self.config.api_key:
+                self._client = anthropic.Anthropic(api_key=self.config.api_key)
+            else:
+                self._client = anthropic.Anthropic()
         return self._client
 
     def _parse_response(self, response, msg_id: str) -> Message:
@@ -98,9 +102,10 @@ class AnthropicLLM(BaseLLM):
             "model": self.model,
             "max_tokens": kwargs.get("max_tokens", self.max_tokens),
             "temperature": kwargs.get("temperature", self.temperature),
-            "system": system_prompt,
             "messages": messages,
         }
+        if system_prompt:
+            request_kwargs["system"] = system_prompt
         if tool_schemas:
             request_kwargs["tools"] = tool_schemas
 
@@ -216,9 +221,10 @@ class AnthropicLLM(BaseLLM):
             "model": self.model,
             "max_tokens": kwargs.get("max_tokens", self.max_tokens),
             "temperature": kwargs.get("temperature", self.temperature),
-            "system": system_prompt,
             "messages": messages,
         }
+        if system_prompt:
+            request_kwargs["system"] = system_prompt
         if tool_schemas:
             request_kwargs["tools"] = tool_schemas
 
