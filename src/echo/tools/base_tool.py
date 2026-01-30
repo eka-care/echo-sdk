@@ -88,17 +88,73 @@ class BaseTool(ABC):
             },
         }
 
+    # JSON Schema fields not supported by Gemini
+    _GEMINI_UNSUPPORTED_FIELDS = {
+        "$defs",
+        "$schema",
+        "$id",
+        "examples",
+        "default",
+        "title",
+        "additionalProperties",
+        "additional_properties",  # snake_case variant from some serializers
+    }
+
+    def _flatten_schema(self, schema: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Recursively flatten a JSON schema by inlining $ref references
+        and removing unsupported fields.
+
+        Gemini doesn't support $ref/$defs, examples, default, title, etc.
+        """
+        if not isinstance(schema, dict):
+            return schema
+
+        # Handle $ref - replace with the actual definition
+        if "$ref" in schema:
+            ref_path = schema["$ref"]  # e.g., "#/$defs/PatientData"
+            ref_name = ref_path.split("/")[-1]
+            if ref_name in defs:
+                # Return flattened version of the referenced definition
+                return self._flatten_schema(defs[ref_name], defs)
+            return schema
+
+        # Recursively process all keys, skipping unsupported fields
+        result = {}
+        for key, value in schema.items():
+            if key in self._GEMINI_UNSUPPORTED_FIELDS:
+                # Skip unsupported fields
+                continue
+            elif isinstance(value, dict):
+                result[key] = self._flatten_schema(value, defs)
+            elif isinstance(value, list):
+                result[key] = [
+                    self._flatten_schema(item, defs) if isinstance(item, dict) else item
+                    for item in value
+                ]
+            else:
+                result[key] = value
+
+        return result
+
     def to_gemini_schema(self) -> Dict[str, Any]:
         """
         Get tool schema for Google Gemini.
 
+        Gemini doesn't support JSON Schema $ref/$defs, so we flatten the schema
+        by inlining all references.
+
         Returns:
             Dict with name, description, and parameters
         """
+        schema = self.input_schema
+        defs = schema.get("$defs", {})
+        flattened = self._flatten_schema(schema, defs)
+
         return {
             "name": self.name,
             "description": self.description,
-            "parameters": self.input_schema,
+            "parameters": flattened,
         }
 
     def to_bedrock_schema(self) -> Dict[str, Any]:

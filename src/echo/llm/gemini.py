@@ -157,6 +157,11 @@ class GeminiLLM(BaseLLM):
             config.system_instruction = system_prompt
         if tool_config:
             config.tools = tool_config
+            # Set tool calling mode: AUTO (default), ANY (must use tool), NONE
+            tool_mode = kwargs.get("tool_mode", "AUTO")
+            config.tool_config = types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(mode=tool_mode)
+            )
 
         iterations = self.max_iterations if tool_config else 1
 
@@ -270,6 +275,11 @@ class GeminiLLM(BaseLLM):
             config.system_instruction = system_prompt
         if tool_config:
             config.tools = tool_config
+            # Set tool calling mode: AUTO (default), ANY (must use tool), NONE
+            tool_mode = kwargs.get("tool_mode", "AUTO")
+            config.tool_config = types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(mode=tool_mode)
+            )
 
         iterations = self.max_iterations if tool_config else 1
 

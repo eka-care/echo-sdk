@@ -37,10 +37,7 @@ class AnthropicLLM(BaseLLM):
             import anthropic
 
             # Use config api_key if provided, otherwise falls back to ANTHROPIC_API_KEY env var
-            if self.config.api_key:
-                self._client = anthropic.Anthropic(api_key=self.config.api_key)
-            else:
-                self._client = anthropic.Anthropic()
+            self._client = anthropic.Anthropic(api_key=self.config.api_key)
         return self._client
 
     def _parse_response(self, response, msg_id: str) -> Message:
