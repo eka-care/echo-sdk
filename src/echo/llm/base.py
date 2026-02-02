@@ -9,7 +9,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from echo.models.user_conversation import ConversationContext, ToolCall, ToolResult
 from echo.tools.base_tool import BaseTool
-from echo.tools.schemas import ElicitationResponse
+from echo.tools.schemas import ElicitationResponse, ElicitationDetails
 
 from .config import LLMConfig
 from .schemas import LLMResponse, StreamEvent
@@ -86,15 +86,14 @@ class BaseLLM(ABC):
 
             is_elicitation = tool.is_elicitation
             full_input = {**tool_call.tool_input, **{"tool_context": tool_context}}
-            if is_elicitation:
-                elicitation_data = await tool.run(**full_input)
+            result = await tool.run(**full_input)
+            if tool.is_elicitation or isinstance(result, ElicitationDetails):
                 return ElicitationResponse(
                     tool_id=tool_call.tool_id,
                     tool_name=tool.name,
-                    details=elicitation_data,
+                    details=result,
                 )
             else:
-                result = await tool.run(**full_input)
                 return ToolResult(tool_id=tool_call.tool_id, result=result)
         except Exception as e:
             if is_elicitation:

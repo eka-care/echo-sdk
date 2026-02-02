@@ -6,9 +6,10 @@ enabling seamless use with all LLM providers and framework adapters.
 """
 
 from typing import TYPE_CHECKING, Any, Dict, Optional
+import json
 
 from .base_tool import BaseTool
-from .schemas import MCPExecutionError
+from .schemas import MCPExecutionError, ElicitationDetails
 
 if TYPE_CHECKING:
     from .mcp_connection_manager import MCPConnectionManager
@@ -59,7 +60,7 @@ class MCPTool(BaseTool):
         """
         return self._input_schema
 
-    async def run(self, tool_context: Optional[Dict[str, Any]] = None, **kwargs) -> str:
+    async def run(self, tool_context: Optional[Dict[str, Any]] = None, **kwargs) -> str | ElicitationDetails:
         """
         Execute the MCP tool asynchronously via manager with automatic retry.
 
@@ -71,11 +72,13 @@ class MCPTool(BaseTool):
         """
         try:
             # TODO: if you need any params from tool context, figure it out here
+            print(f"{self.name}, Tool Context - {tool_context}")
             result = await self._manager.execute_tool(
                 tool_name=self.name, arguments=kwargs
             )
 
             # Parse result (MCP returns content as a list of content blocks)
+            response = str(result)
             if hasattr(result, "content") and result.content:
                 texts = []
                 for block in result.content:
@@ -85,8 +88,17 @@ class MCPTool(BaseTool):
                         texts.append(block["text"])
                     else:
                         texts.append(str(block))
-                return "\n".join(texts)
-            return str(result)
+                response = "\n".join(texts)
+            if hasattr(result, "structuredContent") and result.structuredContent.get("is_elicitation", False):
+                    print(
+                        f"component={result.structuredContent.get('component')}\n"
+                        f"input={result.structuredContent.get('input')}\n"
+                    )
+                    return ElicitationDetails(
+                        component=result.structuredContent.get("component"),
+                        input=result.structuredContent.get("input"),
+                    )
+            return response
 
         except MCPExecutionError as e:
             return f"Tool execution failed: {str(e)}"
