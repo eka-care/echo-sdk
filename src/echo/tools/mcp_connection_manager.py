@@ -114,15 +114,27 @@ class MCPConnectionManager:
             cached_tools = self._tools_cache[self._server_id]
 
         # Apply filters outside lock (filters are read-only)
-        if not filter_fn and not tool_names:
-            return cached_tools
+        filtered_tools = cached_tools
 
-        tool_names_set = set(tool_names) if tool_names else None
-        return [
-            t for t in cached_tools
-            if (not tool_names_set or t.name in tool_names_set)
-            and (not filter_fn or filter_fn(t))
-        ]
+        # 1. Apply config-level include filter (whitelist)
+        if self._config.tool_include:
+            include_set = set(self._config.tool_include)
+            filtered_tools = [t for t in filtered_tools if t.name in include_set]
+
+        # 2. Apply config-level exclude filter (blacklist)
+        if self._config.tool_exclude:
+            exclude_set = set(self._config.tool_exclude)
+            filtered_tools = [t for t in filtered_tools if t.name not in exclude_set]
+
+        # 3. Apply method-level filters
+        if tool_names:
+            tool_names_set = set(tool_names)
+            filtered_tools = [t for t in filtered_tools if t.name in tool_names_set]
+
+        if filter_fn:
+            filtered_tools = [t for t in filtered_tools if filter_fn(t)]
+
+        return filtered_tools
 
     async def refresh_tools_cache(self) -> None:
         """Force refresh of tools cache for this server."""
