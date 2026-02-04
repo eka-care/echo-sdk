@@ -45,6 +45,7 @@ class LangfusePromptProvider(BasePromptProvider):
         self,
         name: str,
         version: Optional[str] = None,
+        label: Optional[str] = None,
         prompt_variables: Optional[Dict[str, Any]] = None,
     ) -> FetchedPrompt:
         """
@@ -53,6 +54,7 @@ class LangfusePromptProvider(BasePromptProvider):
         Args:
             name: Prompt name in Langfuse
             version: Optional version number
+            label: Optional label such as production/latest
             **variables: Variables to compile the prompt with
 
         Returns:
@@ -65,6 +67,8 @@ class LangfusePromptProvider(BasePromptProvider):
             kwargs: dict[str, Any] = {}
             if version is not None:
                 kwargs["version"] = int(version)
+            if label is not None:
+                kwargs["label"] = label
 
             # Langfuse SDK is sync, run in executor
             loop = asyncio.get_event_loop()
@@ -96,5 +100,20 @@ class LangfusePromptProvider(BasePromptProvider):
                 agent_config=agent_config,
             )
 
+        except Exception as e:
+            raise PromptFetchError(f"Failed to fetch '{name}': {e}")
+
+
+    async def get_dataset(
+        self,
+        name: str,
+    ):
+        try:
+            # Langfuse SDK is sync, run in executor
+            loop = asyncio.get_event_loop()
+            langfuse_dataset = await loop.run_in_executor(
+                None, lambda: self.client.get_dataset(name)
+            )
+            return langfuse_dataset
         except Exception as e:
             raise PromptFetchError(f"Failed to fetch '{name}': {e}")
