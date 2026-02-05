@@ -5,9 +5,47 @@ Pydantic models for LLM provider configuration.
 """
 
 import os
+from enum import Enum
 from typing import Any, Literal, Optional, Set
 
 from pydantic import BaseModel, model_validator
+
+
+class ReasoningEffort(str, Enum):
+    """OpenAI reasoning effort levels for GPT-5.x and o-series models."""
+
+    NONE = "none"
+    MINIMAL = "minimal"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    XHIGH = "xhigh"
+
+
+class GeminiThinkingLevel(str, Enum):
+    """Gemini 3+ thinking levels."""
+
+    LOW = "low"
+    HIGH = "high"
+
+
+class ThinkingConfig(BaseModel):
+    """Configuration for LLM thinking/reasoning capabilities.
+
+    Each provider has its own parameter:
+    - OpenAI (GPT-5.x, o-series): reasoning_effort
+    - Anthropic (Claude 4/4.5): budget_tokens (min 1024)
+    - Gemini (Gemini 3+): level
+    """
+
+    # OpenAI GPT-5.x and o-series
+    reasoning_effort: Optional[ReasoningEffort] = None
+
+    # Anthropic Claude 4/4.5 extended thinking (minimum 1024)
+    budget_tokens: Optional[int] = None
+
+    # Gemini 3+ thinking level
+    level: Optional[GeminiThinkingLevel] = None
 
 
 class LLMConfig(BaseModel):
@@ -29,6 +67,9 @@ class LLMConfig(BaseModel):
     api_key: Optional[str] = None  # For OpenAI, Anthropic, Gemini
     aws_access_key_id: Optional[str] = None  # For Bedrock
     aws_secret_access_key: Optional[str] = None  # For Bedrock
+
+    # Thinking/reasoning configuration (provider-specific)
+    thinking: Optional[ThinkingConfig] = None
 
     def to_crewai_llm(self) -> Any:
         """Convert to CrewAI LLM instance."""
@@ -116,6 +157,30 @@ class LLMConfig(BaseModel):
             raise ValueError(
                 f"Unsupported model: {self.model} for provider: {self.provider}. Supported: {supported_model_ids}"
             )
+
+        # Validate thinking config if provided
+        if self.thinking:
+            # Validate reasoning_effort (OpenAI only)
+            if self.thinking.reasoning_effort is not None and self.provider != "openai":
+                raise ValueError(
+                    f"thinking.reasoning_effort is only supported for OpenAI, not {self.provider}"
+                )
+
+            # Validate budget_tokens (Anthropic only, min 1024)
+            if self.thinking.budget_tokens is not None:
+                if self.provider != "anthropic":
+                    raise ValueError(
+                        f"thinking.budget_tokens is only supported for Anthropic, not {self.provider}"
+                    )
+                if self.thinking.budget_tokens < 1024:
+                    raise ValueError("thinking.budget_tokens must be at least 1024")
+
+            # Validate level (Gemini only)
+            if self.thinking.level is not None and self.provider != "gemini":
+                raise ValueError(
+                    f"thinking.level is only supported for Gemini, not {self.provider}"
+                )
+
         return self
 
 
