@@ -3,9 +3,9 @@ import json
 import logging
 import uuid
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, HttpUrl, model_validator
+from pydantic import BaseModel, Discriminator, Field, HttpUrl, Tag, model_validator
 
 from echo.models.providers import Provider
 from echo.utils.download import download_url_as_bytes
@@ -105,8 +105,24 @@ class DocumentContent(BaseModel):
         return self
 
 
-# Type alias for content items
-ContentItem = Union[TextMessage, ToolCall, ToolResult, ImageContent, DocumentContent]
+# Type alias for content items with discriminator for proper JSON deserialization
+def _get_content_item_discriminator(v: Any) -> str:
+    """Discriminator function for ContentItem union type."""
+    if isinstance(v, dict):
+        return v.get("type", "text")
+    return getattr(v, "type", MessageType.TEXT).value
+
+
+ContentItem = Annotated[
+    Union[
+        Annotated[TextMessage, Tag("text")],
+        Annotated[ToolCall, Tag("tool_call")],
+        Annotated[ToolResult, Tag("tool_result")],
+        Annotated[ImageContent, Tag("image")],
+        Annotated[DocumentContent, Tag("document")],
+    ],
+    Discriminator(_get_content_item_discriminator),
+]
 
 
 class LLMUsageMetrics(BaseModel):

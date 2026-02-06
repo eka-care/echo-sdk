@@ -29,6 +29,7 @@ class GeminiLLM(BaseLLM):
     def __init__(self, config: LLMConfig):
         super().__init__(config)
         self._client = None
+        self.thinking_level = config.thinking.level if config.thinking else None
 
     @property
     def client(self):
@@ -42,6 +43,10 @@ class GeminiLLM(BaseLLM):
                 raise ValueError("API key required for Gemini: provide api_key in config or set GOOGLE_API_KEY env var")
             self._client = genai.Client(api_key=api_key)
         return self._client
+
+    def _is_gemini_3(self) -> bool:
+        """Check if model is Gemini 3 (uses thinking_level)."""
+        return "gemini-3" in self.model
 
     def _to_gemini_contents(self, context: ConversationContext) -> List[Dict[str, Any]]:
         """Convert conversation context to Gemini message format."""
@@ -153,6 +158,13 @@ class GeminiLLM(BaseLLM):
             temperature=kwargs.get("temperature", self.temperature),
             max_output_tokens=kwargs.get("max_tokens", self.max_tokens),
         )
+
+        # Thinking config for Gemini 3+
+        if self.thinking_level and self._is_gemini_3():
+            config.thinking_config = types.ThinkingConfig(
+                thinking_level=self.thinking_level.value
+            )
+
         if system_prompt:
             config.system_instruction = system_prompt
         if tool_config:
@@ -271,6 +283,13 @@ class GeminiLLM(BaseLLM):
             temperature=kwargs.get("temperature", self.temperature),
             max_output_tokens=kwargs.get("max_tokens", self.max_tokens),
         )
+
+        # Thinking config for Gemini 3+
+        if self.thinking_level and self._is_gemini_3():
+            config.thinking_config = types.ThinkingConfig(
+                thinking_level=self.thinking_level.value
+            )
+
         if system_prompt:
             config.system_instruction = system_prompt
         if tool_config:

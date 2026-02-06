@@ -83,6 +83,10 @@ class MCPServerConfig(BaseModel):
     # Connection management
     connection_ttl: int = 600  # TTL for cleanup (10 minutes)
 
+    # Tool filtering (optional)
+    tool_include: Optional[List[str]] = None  # Whitelist: only these tools available
+    tool_exclude: Optional[List[str]] = None  # Blacklist: exclude these tools
+
     def validate(self) -> None:
         """Validate configuration based on transport type."""
         if self.transport == MCPTransport.SSE:

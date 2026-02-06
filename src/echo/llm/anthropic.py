@@ -29,6 +29,7 @@ class AnthropicLLM(BaseLLM):
     def __init__(self, config: LLMConfig):
         super().__init__(config)
         self._client = None
+        self.thinking_budget_tokens = config.thinking.budget_tokens if config.thinking else None
 
     @property
     def client(self):
@@ -39,6 +40,14 @@ class AnthropicLLM(BaseLLM):
             # Use config api_key if provided, otherwise falls back to ANTHROPIC_API_KEY env var
             self._client = anthropic.Anthropic(api_key=self.config.api_key)
         return self._client
+
+    def _supports_extended_thinking(self) -> bool:
+        """Check if model supports extended thinking."""
+        # Claude 4/4.5 models support extended thinking
+        return any(
+            x in self.model
+            for x in ["claude-sonnet-4", "claude-haiku-4", "claude-opus-4"]
+        )
 
     def _parse_response(self, response, msg_id: str) -> Message:
         """Parse Anthropic response into a Message."""
@@ -101,6 +110,14 @@ class AnthropicLLM(BaseLLM):
             "temperature": kwargs.get("temperature", self.temperature),
             "messages": messages,
         }
+
+        # Extended thinking for Claude 4/4.5
+        if self.thinking_budget_tokens and self._supports_extended_thinking():
+            request_kwargs["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": self.thinking_budget_tokens,
+            }
+
         if system_prompt:
             request_kwargs["system"] = system_prompt
         if tool_schemas:
@@ -220,6 +237,14 @@ class AnthropicLLM(BaseLLM):
             "temperature": kwargs.get("temperature", self.temperature),
             "messages": messages,
         }
+
+        # Extended thinking for Claude 4/4.5
+        if self.thinking_budget_tokens and self._supports_extended_thinking():
+            request_kwargs["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": self.thinking_budget_tokens,
+            }
+
         if system_prompt:
             request_kwargs["system"] = system_prompt
         if tool_schemas:

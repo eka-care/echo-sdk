@@ -29,6 +29,7 @@ class OpenAILLM(BaseLLM):
     def __init__(self, config: LLMConfig):
         super().__init__(config)
         self._client = None
+        self.reasoning_effort = config.thinking.reasoning_effort if config.thinking else None
 
     @property
     def client(self):
@@ -42,6 +43,23 @@ class OpenAILLM(BaseLLM):
             else:
                 self._client = OpenAI()
         return self._client
+
+    def _uses_max_completion_tokens(self) -> bool:
+        """Check if model uses max_completion_tokens instead of max_tokens.
+
+        Newer OpenAI models (GPT-5.x, GPT-4.1, o-series) require max_completion_tokens
+        while legacy models (gpt-4o, gpt-4o-mini) still use max_tokens.
+        """
+        legacy_models = ("gpt-4o",)  # gpt-4o and gpt-4o-mini use max_tokens
+        return not self.model.startswith(legacy_models)
+
+    def _is_reasoning_model(self) -> bool:
+        """Check if model is a reasoning model (o-series) that doesn't support temperature."""
+        return self.model.startswith(("o1", "o3", "o4-mini"))
+
+    def _supports_reasoning_effort(self) -> bool:
+        """Check if model supports reasoning_effort parameter."""
+        return self.model.startswith(("gpt-5", "o1", "o3", "o4-mini"))
 
     def _parse_response(self, response, msg_id: str) -> Message:
         """Parse OpenAI response into a Message."""
@@ -108,9 +126,22 @@ class OpenAILLM(BaseLLM):
         request_kwargs = {
             "model": self.model,
             "messages": messages,
-            "temperature": kwargs.get("temperature", self.temperature),
-            "max_tokens": kwargs.get("max_tokens", self.max_tokens),
         }
+
+        # Use appropriate token limit parameter based on model
+        max_tokens_value = kwargs.get("max_tokens", self.max_tokens)
+        if self._uses_max_completion_tokens():
+            request_kwargs["max_completion_tokens"] = max_tokens_value
+        else:
+            request_kwargs["max_tokens"] = max_tokens_value
+
+        # Temperature not supported for o-series reasoning models
+        if not self._is_reasoning_model():
+            request_kwargs["temperature"] = kwargs.get("temperature", self.temperature)
+
+        # Reasoning effort for GPT-5.x and o-series
+        if self.reasoning_effort and self._supports_reasoning_effort():
+            request_kwargs["reasoning_effort"] = self.reasoning_effort.value
 
         if openai_tools:
             request_kwargs["tools"] = openai_tools
@@ -228,11 +259,24 @@ class OpenAILLM(BaseLLM):
         request_kwargs = {
             "model": self.model,
             "messages": messages,
-            "temperature": kwargs.get("temperature", self.temperature),
-            "max_tokens": kwargs.get("max_tokens", self.max_tokens),
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+
+        # Use appropriate token limit parameter based on model
+        max_tokens_value = kwargs.get("max_tokens", self.max_tokens)
+        if self._uses_max_completion_tokens():
+            request_kwargs["max_completion_tokens"] = max_tokens_value
+        else:
+            request_kwargs["max_tokens"] = max_tokens_value
+
+        # Temperature not supported for o-series reasoning models
+        if not self._is_reasoning_model():
+            request_kwargs["temperature"] = kwargs.get("temperature", self.temperature)
+
+        # Reasoning effort for GPT-5.x and o-series
+        if self.reasoning_effort and self._supports_reasoning_effort():
+            request_kwargs["reasoning_effort"] = self.reasoning_effort.value
 
         if openai_tools:
             request_kwargs["tools"] = openai_tools
