@@ -8,7 +8,7 @@ enabling seamless use with all LLM providers and framework adapters.
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from .base_tool import BaseTool
-from .schemas import MCPExecutionError
+from .schemas import ElicitationDetails, MCPExecutionError
 
 if TYPE_CHECKING:
     from .mcp_connection_manager import MCPConnectionManager
@@ -59,7 +59,9 @@ class MCPTool(BaseTool):
         """
         return self._input_schema
 
-    async def run(self, tool_context: Optional[Dict[str, Any]] = None, **kwargs) -> str:
+    async def run(
+        self, tool_context: Optional[Dict[str, Any]] = None, **kwargs
+    ) -> str | ElicitationDetails:
         """
         Execute the MCP tool asynchronously via manager with automatic retry.
 
@@ -74,6 +76,13 @@ class MCPTool(BaseTool):
             result = await self._manager.execute_tool(
                 tool_name=self.name, arguments=kwargs
             )
+
+            structured_content = (
+                result.structuredContent if hasattr(result, "structuredContent") else {}
+            )
+            if structured_content and structured_content.get("is_elicitation"):
+                elicitation_details = ElicitationDetails(**structured_content)
+                return elicitation_details
 
             # Parse result (MCP returns content as a list of content blocks)
             if hasattr(result, "content") and result.content:
