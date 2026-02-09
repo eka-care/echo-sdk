@@ -60,7 +60,6 @@ async def run_agent_eval():
         # Fetch prompt with variables - AgentConfig is ready to use
         prompt = await provider.get_prompt(
             prompt_name(),
-            label="production",
             prompt_variables={"specialty": "cardiology"},
         )
         print(f"Using prompt: {prompt.name} v{prompt.version}")
