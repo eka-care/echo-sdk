@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, HttpUrl, field_serializer
+from pydantic import BaseModel, Field, HttpUrl, field_serializer
 
 
 # MCP Exception Classes
@@ -38,9 +38,11 @@ class ElicitationComponent(str, Enum):
 class ElicitationDetails(BaseModel):
     """Structured response from elicitation tools."""
 
+    model_config = {"populate_by_name": True}
+
     component: str  # Accept any string enum value for flexibility with subclasses
     input: Dict[str, Any]
-    _meta: Optional[Dict[str, Any]] = None
+    meta: Optional[Dict[str, Any]] = Field(default=None, alias="_meta")
 
 
 class ElicitationResponse(BaseModel):

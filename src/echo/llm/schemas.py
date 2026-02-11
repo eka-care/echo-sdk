@@ -1,9 +1,10 @@
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 
+from pydantic import BaseModel
+
 from echo.models.user_conversation import ConversationContext
 from echo.tools.schemas import ElicitationResponse
-from pydantic import BaseModel
 
 
 class VerboseResponseItem(BaseModel):
