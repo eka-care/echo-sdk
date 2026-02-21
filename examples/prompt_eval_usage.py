@@ -81,6 +81,14 @@ async def run_agent_eval():
     async def get_agent_reply(*, item, **kwargs):
         # Create conversation context
         context = ConversationContext()
+        chat_history = item.input.get("chat_history", [])
+        for message in chat_history:
+            context.add_message(
+                Message(
+                    role=MessageRole.USER if message["role"] == "user" else MessageRole.ASSISTANT,
+                    content=[TextMessage(text=message["message"])],
+                )
+            )
         context.add_message(
             Message(
                 role=MessageRole.USER,
@@ -99,9 +107,9 @@ async def run_agent_eval():
         provider = get_eval_provider()
 
         await provider.run_experiment(
-            name="Dataset run",
-            dataset_name="care-qa-dataset",
-            description="Evaluating the chatbot's ability to answer health related questions sufficiently and not as a doctor",
+            name="Orange test run",
+            dataset_name="orange-scenarios",
+            description="Generating output for dataset with chat history",
             run_func=get_agent_reply, # see above for the task definition
         )
 
