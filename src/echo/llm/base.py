@@ -98,14 +98,9 @@ class BaseLLM(ABC):
             return ToolResult(tool_id=tool_call.tool_id, result=tool_result)
 
         except Exception as e:
-            if is_elicitation:
-                return ElicitationResponse(
-                    tool_id=tool_call.tool_id, error=f"Error running tool: {e}"
-                )
-            else:
-                return ToolResult(
-                    tool_id=tool_call.tool_id, result=f"Error running tool: {e}"
-                )
+            return ToolResult(
+                tool_id=tool_call.tool_id, result=f"Error running tool: {e}"
+            )
 
     async def invoke_stream(
         self,
