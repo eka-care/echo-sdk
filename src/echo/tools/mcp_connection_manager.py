@@ -34,6 +34,7 @@ class MCPConnection:
     config: MCPServerConfig
     connected_at: float
     last_used: float
+    active_count: int = 0
 
 
 class MCPConnectionManager:
@@ -45,6 +46,7 @@ class MCPConnectionManager:
     """
 
     # Class-level shared state
+    MAX_CONNECTIONS: ClassVar[int] = 20
     _connections: ClassVar[Dict[str, MCPConnection]] = {}
     _locks: ClassVar[Dict[str, asyncio.Lock]] = {}
     _cleanup_task: ClassVar[Optional[asyncio.Task]] = None
@@ -158,6 +160,7 @@ class MCPConnectionManager:
             MCPExecutionError: If tool execution fails after reconnection attempt
         """
         conn = await self._get_or_create_connection()
+        conn.active_count += 1
 
         try:
             # Try once with current connection
@@ -169,6 +172,7 @@ class MCPConnectionManager:
         except Exception as e:
             # Connection failed - reconnect and try once more
             logger.warning(f"Tool {tool_name} failed: {e}, reconnecting...")
+            conn.active_count -= 1
 
             # Close bad connection and remove from pool
             async with self._locks[self._server_id]:
@@ -181,8 +185,9 @@ class MCPConnectionManager:
                     self._tools_cache.pop(self._server_id, None)  # Clear tools cache too
 
             # Get fresh connection and retry once
+            conn = await self._get_or_create_connection()
+            conn.active_count += 1
             try:
-                conn = await self._get_or_create_connection()
                 result = await conn.session.call_tool(tool_name, arguments=arguments)
                 conn.last_used = time.time()
                 logger.info(f"Successfully executed {tool_name} after reconnection")
@@ -192,6 +197,11 @@ class MCPConnectionManager:
                 raise MCPExecutionError(
                     f"Failed to execute '{tool_name}' after reconnection attempt"
                 ) from retry_error
+            finally:
+                conn.active_count -= 1
+
+        else:
+            conn.active_count -= 1
 
     async def _get_or_create_connection(self) -> MCPConnection:
         """Get connection from pool or create new one. No health checks."""
@@ -202,6 +212,23 @@ class MCPConnectionManager:
             if conn:
                 logger.debug(f"Reusing existing connection: {self._server_id}")
                 return conn
+
+            # Evict LRU idle connection if pool is full
+            if len(self._connections) >= self.MAX_CONNECTIONS:
+                lru_id = None
+                lru_time = float("inf")
+                for sid, c in self._connections.items():
+                    if c.active_count == 0 and c.last_used < lru_time:
+                        lru_time = c.last_used
+                        lru_id = sid
+                if lru_id is None:
+                    raise MCPConnectionError(
+                        "Connection pool exhausted"
+                    )
+                await self._close_connection(self._connections[lru_id])
+                del self._connections[lru_id]
+                self._tools_cache.pop(lru_id, None)
+                logger.info(f"Evicted LRU connection to make room: {lru_id}")
 
             # Create new connection
             conn = await self._create_connection()
@@ -339,6 +366,7 @@ class MCPConnectionManager:
                     server_id
                     for server_id, conn in self._connections.items()
                     if (now - conn.connected_at) > self._config.connection_ttl
+                    and conn.active_count == 0
                 ]
 
                 # Remove expired connections
