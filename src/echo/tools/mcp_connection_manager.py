@@ -107,11 +107,15 @@ class MCPConnectionManager:
                         server_id=self._server_id,
                         tool_name=tool.name,
                         tool_description=tool.description or "",
-                        input_schema=tool.inputSchema if hasattr(tool, "inputSchema") else None,
+                        input_schema=(
+                            tool.inputSchema if hasattr(tool, "inputSchema") else None
+                        ),
                     )
                     all_tools.append(mcp_tool)
                 self._tools_cache[self._server_id] = all_tools
-                logger.info(f"Discovered and cached {len(all_tools)} tools from {self._server_id}")
+                logger.info(
+                    f"Discovered and cached {len(all_tools)} tools from {self._server_id}"
+                )
 
             cached_tools = self._tools_cache[self._server_id]
 
@@ -182,7 +186,9 @@ class MCPConnectionManager:
                     except Exception as e:
                         logger.error(f"Error closing connection: {e}")
                     del self._connections[self._server_id]
-                    self._tools_cache.pop(self._server_id, None)  # Clear tools cache too
+                    self._tools_cache.pop(
+                        self._server_id, None
+                    )  # Clear tools cache too
 
             # Get fresh connection and retry once
             conn = await self._get_or_create_connection()
@@ -205,36 +211,39 @@ class MCPConnectionManager:
 
     async def _get_or_create_connection(self) -> MCPConnection:
         """Get connection from pool or create new one. No health checks."""
-        async with self._locks[self._server_id]:
-            conn = self._connections.get(self._server_id)
+        for attempt in range(2):
+            async with self._locks[self._server_id]:
+                conn = self._connections.get(self._server_id)
 
-            # If exists in pool, return it (trust it until it fails)
-            if conn:
-                logger.debug(f"Reusing existing connection: {self._server_id}")
+                # If exists in pool, return it (trust it until it fails)
+                if conn:
+                    logger.debug(f"Reusing existing connection: {self._server_id}")
+                    return conn
+
+                # Evict LRU idle connection if pool is full
+                if len(self._connections) >= self.MAX_CONNECTIONS:
+                    lru_id = None
+                    lru_time = float("inf")
+                    for sid, c in self._connections.items():
+                        if c.active_count == 0 and c.last_used < lru_time:
+                            lru_time = c.last_used
+                            lru_id = sid
+                    if lru_id is None:
+                        if attempt == 0:
+                            await asyncio.sleep(1)
+                            continue
+                        else:
+                            raise MCPConnectionError("Connection pool exhausted")
+                    await self._close_connection(self._connections[lru_id])
+                    del self._connections[lru_id]
+                    self._tools_cache.pop(lru_id, None)
+                    logger.info(f"Evicted LRU connection to make room: {lru_id}")
+
+                # Create new connection
+                conn = await self._create_connection()
+                self._connections[self._server_id] = conn
+                logger.info(f"Connected to: {self._server_id}")
                 return conn
-
-            # Evict LRU idle connection if pool is full
-            if len(self._connections) >= self.MAX_CONNECTIONS:
-                lru_id = None
-                lru_time = float("inf")
-                for sid, c in self._connections.items():
-                    if c.active_count == 0 and c.last_used < lru_time:
-                        lru_time = c.last_used
-                        lru_id = sid
-                if lru_id is None:
-                    raise MCPConnectionError(
-                        "Connection pool exhausted"
-                    )
-                await self._close_connection(self._connections[lru_id])
-                del self._connections[lru_id]
-                self._tools_cache.pop(lru_id, None)
-                logger.info(f"Evicted LRU connection to make room: {lru_id}")
-
-            # Create new connection
-            conn = await self._create_connection()
-            self._connections[self._server_id] = conn
-            logger.info(f"Connected to: {self._server_id}")
-            return conn
 
     async def _create_connection(self) -> MCPConnection:
         """Create new MCP connection."""
@@ -335,7 +344,9 @@ class MCPConnectionManager:
                 self._config.timeout, read=self._config.sse_read_timeout
             ),
         )
-        return streamable_http_client(url=str(self._config.url), http_client=http_client)
+        return streamable_http_client(
+            url=str(self._config.url), http_client=http_client
+        )
 
     def _generate_server_id(self, config: MCPServerConfig) -> str:
         """Generate unique ID for connection pooling."""
@@ -375,7 +386,9 @@ class MCPConnectionManager:
                         if server_id in self._connections:
                             await self._close_connection(self._connections[server_id])
                             del self._connections[server_id]
-                            self._tools_cache.pop(server_id, None)  # Clear tools cache too
+                            self._tools_cache.pop(
+                                server_id, None
+                            )  # Clear tools cache too
                             logger.info(f"Cleaned up expired connection: {server_id}")
 
             except asyncio.CancelledError:
