@@ -312,10 +312,20 @@ class MCPConnectionManager:
 
     def _generate_server_id(self, config: MCPServerConfig) -> str:
         """Generate unique ID for connection pooling."""
+        import hashlib
+
+        import orjson
+
         if config.transport in [MCPTransport.SSE, MCPTransport.STREAMABLE_HTTP]:
-            return f"{config.transport.value}:{config.url}"
+            headers_hash = hashlib.md5(
+                orjson.dumps(config.headers or {}, option=orjson.OPT_SORT_KEYS)
+            ).hexdigest()[:8]
+            return f"{config.transport.value}:{config.url}:{headers_hash}"
         else:  # STDIO
-            return f"{config.transport.value}:{config.command}:{':'.join(config.args or [])}"
+            env_hash = hashlib.md5(
+                orjson.dumps(config.env or {}, option=orjson.OPT_SORT_KEYS)
+            ).hexdigest()[:8]
+            return f"{config.transport.value}:{config.command}:{':'.join(config.args or [])}:{env_hash}"
 
     async def _cleanup_loop(self):
         """Background task to remove expired connections (TTL only)."""
