@@ -9,7 +9,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from echo.models.user_conversation import ConversationContext, ToolCall, ToolResult
 from echo.tools.base_tool import BaseTool
-from echo.tools.schemas import ElicitationDetails, ElicitationResponse
+from echo.tools.schemas import ElicitationDetails, ElicitationResponse, ToolOutput
 
 from .config import LLMConfig
 from .schemas import LLMResponse, StreamEvent
@@ -93,6 +93,13 @@ class BaseLLM(ABC):
                     tool_id=tool_call.tool_id,
                     tool_name=tool.name,
                     details=tool_result,
+                )
+
+            if isinstance(tool_result, ToolOutput):
+                return ToolResult(
+                    tool_id=tool_call.tool_id,
+                    result=tool_result.result,
+                    meta=tool_result.meta,
                 )
 
             return ToolResult(tool_id=tool_call.tool_id, result=tool_result)
