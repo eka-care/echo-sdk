@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -27,6 +28,14 @@ class MCPExecutionError(MCPError):
     """Tool execution failures after all retries."""
 
     pass
+
+
+@dataclass
+class ToolOutput:
+    """Structured return type for tools that want to attach metadata."""
+
+    result: str
+    meta: Optional[Dict[str, Any]] = field(default=None)
 
 
 class ElicitationComponent(str, Enum):

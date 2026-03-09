@@ -66,6 +66,7 @@ class ToolResult(BaseModel):
     type: MessageType = MessageType.TOOL_RESULT
     tool_id: str
     result: Any
+    meta: Optional[Dict[str, Any]] = None
 
 
 class ImageContent(BaseModel):
