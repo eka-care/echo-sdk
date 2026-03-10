@@ -44,6 +44,14 @@ class ElicitationComponent(str, Enum):
     pass
 
 
+class ElicitationStatus(str, Enum):
+    """Status for elicitation tools to facilitate callback"""
+
+    IN_PROGRESS = "progress"
+    DONE = "success"
+    ERROR = "error"
+
+
 class ElicitationDetails(BaseModel):
     """Structured response from elicitation tools."""
 
@@ -52,6 +60,7 @@ class ElicitationDetails(BaseModel):
     component: str  # Accept any string enum value for flexibility with subclasses
     input: Dict[str, Any]
     meta: Optional[Dict[str, Any]] = Field(default=None, alias="_meta")
+    status: Optional[ElicitationStatus] = None
 
 
 class ElicitationResponse(BaseModel):
