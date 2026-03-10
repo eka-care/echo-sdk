@@ -9,7 +9,7 @@ from abc import abstractmethod
 from typing import Any, Dict, List, Optional
 
 from .base_tool import BaseTool
-from .schemas import ElicitationComponent, ElicitationDetails
+from .schemas import ElicitationComponent, ElicitationDetails, ElicitationStatus
 
 
 class BaseElicitationTool(BaseTool):
@@ -43,6 +43,7 @@ class BaseElicitationTool(BaseTool):
         component: str,
         _meta: Optional[Dict[str, Any]] = None,
         tool_context: Optional[Dict[str, Any]] = None,
+        status: Optional[ElicitationStatus] = None,
         **kwargs,
     ) -> ElicitationDetails:
         """Return JSON string of ElicitationResponse."""
@@ -63,4 +64,5 @@ class BaseElicitationTool(BaseTool):
             component=component_enum.value,
             input=kwargs,
             _meta=_meta,
+            status=status,
         )
