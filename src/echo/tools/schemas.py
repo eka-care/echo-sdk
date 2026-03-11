@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_serializer
 
@@ -49,6 +49,7 @@ class ElicitationDetails(BaseModel):
 
     model_config = {"populate_by_name": True}
 
+    status: Literal["progress", "success", "failure"] = "success"
     component: str  # Accept any string enum value for flexibility with subclasses
     input: Dict[str, Any]
     meta: Optional[Dict[str, Any]] = Field(default=None, alias="_meta")
@@ -57,9 +58,11 @@ class ElicitationDetails(BaseModel):
 class ElicitationResponse(BaseModel):
     """Structured response from elicitation tools."""
 
+    tool_type = "elicitation"
     tool_id: str
     tool_name: str
     details: ElicitationDetails
+    meta: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
 
 

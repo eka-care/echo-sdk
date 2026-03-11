@@ -89,10 +89,14 @@ class BaseLLM(ABC):
             tool_result = await tool.run(**full_input)
 
             if is_elicitation or isinstance(tool_result, ElicitationDetails):
+                meta = {}
+                if hasattr(tool, "_manager") and hasattr(tool._manager, "_config") and tool._manager._config.url:
+                    meta["mcp_url"] = str(tool._manager._config.url)
                 return ElicitationResponse(
                     tool_id=tool_call.tool_id,
                     tool_name=tool.name,
                     details=tool_result,
+                    meta=meta if meta else None,
                 )
 
             if isinstance(tool_result, ToolOutput):
