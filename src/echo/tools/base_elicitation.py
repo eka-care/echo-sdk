@@ -44,8 +44,6 @@ class BaseElicitationTool(BaseTool):
         _meta: Optional[Dict[str, Any]] = None,
         tool_context: Optional[Dict[str, Any]] = None,
         status: Optional[ElicitationStatus] = None,
-        message: Optional[str] = None,
-        hidden_message: Optional[str] = None,
         **kwargs,
     ) -> ElicitationDetails:
         """Return JSON string of ElicitationResponse."""
@@ -67,6 +65,4 @@ class BaseElicitationTool(BaseTool):
             input=kwargs,
             _meta=_meta,
             status=status,
-            message=message,
-            hidden_message=hidden_message,
         )

@@ -61,8 +61,6 @@ class ElicitationDetails(BaseModel):
     input: Dict[str, Any]
     meta: Optional[Dict[str, Any]] = Field(default=None, alias="_meta")
     status: Optional[ElicitationStatus] = None
-    message: Optional[str] = None
-    hidden_message: Optional[str] = None
 
 
 class ElicitationResponse(BaseModel):
