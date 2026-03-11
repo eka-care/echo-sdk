@@ -7,6 +7,7 @@ from .mcp_tool import MCPTool
 from .schemas import (
     ElicitationDetails,
     ElicitationResponse,
+    ElicitationStatus,
     MCPConfigError,
     MCPConnectionError,
     MCPError,
@@ -28,5 +29,6 @@ __all__ = [
     "MCPConnectionError",
     "MCPExecutionError",
     "ElicitationDetails",
+    "ElicitationStatus",
     "ElicitationResponse",
 ]
