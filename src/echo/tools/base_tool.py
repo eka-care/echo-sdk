@@ -27,6 +27,11 @@ class BaseTool(ABC):
         return False
 
     @property
+    def meta(self) -> Dict[str, Any]:
+        """Tool metadata with tool_class derived from module and class name."""
+        return {"tool_class": f"{type(self).__module__}.{type(self).__name__}"}
+
+    @property
     @abstractmethod
     def input_schema(self) -> Dict[str, Any]:
         """

@@ -49,7 +49,7 @@ class ElicitationStatus(str, Enum):
 
     IN_PROGRESS = "progress"
     DONE = "success"
-    ERROR = "error"
+    ERROR = "failure"
 
 
 class ElicitationDetails(BaseModel):
@@ -57,7 +57,6 @@ class ElicitationDetails(BaseModel):
 
     model_config = {"populate_by_name": True}
 
-    status: Literal["progress", "success", "failure"] = "success"
     component: str  # Accept any string enum value for flexibility with subclasses
     input: Dict[str, Any]
     meta: Optional[Dict[str, Any]] = Field(default=None, alias="_meta")
@@ -67,7 +66,7 @@ class ElicitationDetails(BaseModel):
 class ElicitationResponse(BaseModel):
     """Structured response from elicitation tools."""
 
-    tool_type = "elicitation"
+    tool_type: str = "elicitation"
     tool_id: str
     tool_name: str
     details: ElicitationDetails

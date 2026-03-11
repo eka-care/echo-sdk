@@ -90,8 +90,14 @@ class BaseLLM(ABC):
 
             if is_elicitation or isinstance(tool_result, ElicitationDetails):
                 meta = {}
-                if hasattr(tool, "_manager") and hasattr(tool._manager, "_config") and tool._manager._config.url:
+                if (
+                    hasattr(tool, "_manager")
+                    and hasattr(tool._manager, "_config")
+                    and tool._manager._config.url
+                ):
                     meta["mcp_url"] = str(tool._manager._config.url)
+                if hasattr(tool, "meta") and tool.meta:
+                    meta.update(tool.meta)
                 return ElicitationResponse(
                     tool_id=tool_call.tool_id,
                     tool_name=tool.name,
