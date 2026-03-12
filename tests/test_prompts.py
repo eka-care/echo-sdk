@@ -5,6 +5,9 @@ These tests do not require Langfuse credentials and test the core
 functionality of the prompt management system.
 """
 
+import time
+from typing import Any, Dict, Optional
+
 import pytest
 
 from echo.agents.config import AgentConfig, PersonaConfig, TaskConfig
@@ -14,6 +17,13 @@ from echo.prompts import (
     PromptFetchError,
     get_prompt_provider,
     reset_prompt_provider,
+    reset_prompt_observability,
+    set_prompt_observability,
+)
+from echo.prompts.observability import (
+    PromptFetchMetadata,
+    PromptObservationContext,
+    PromptObservability,
 )
 
 
@@ -122,7 +132,10 @@ class TestAgentConfig:
 class MockPromptProvider(BasePromptProvider):
     """Mock provider for testing base class functionality."""
 
-    def __init__(self):
+    def __init__(
+        self, observability: Optional[PromptObservability] = None
+    ):
+        super().__init__(observability=observability)
         self.fetch_count = 0
 
     async def get_prompt(self, name, version=None, prompt_variables=None, **kwargs):
@@ -139,6 +152,94 @@ class MockPromptProvider(BasePromptProvider):
                 task=TaskConfig(description=description, expected_output="output"),
             ),
         )
+
+
+class RecordingObservability(PromptObservability):
+    """Helper observability implementation used in tests."""
+
+    def __init__(self) -> None:
+        self.starts: list[PromptFetchMetadata] = []
+        self.successes: list[tuple[PromptFetchMetadata, Dict[str, Any]]] = []
+        self.failures: list[tuple[PromptFetchMetadata, Exception]] = []
+
+    def on_fetch_start(
+        self,
+        metadata: PromptFetchMetadata,
+        *,
+        langfuse_client: Optional[Any] = None,
+    ) -> PromptObservationContext:
+        del langfuse_client
+        self.starts.append(metadata)
+        return PromptObservationContext(start_time=time.monotonic())
+
+    def on_fetch_success(
+        self,
+        context: PromptObservationContext,
+        metadata: PromptFetchMetadata,
+        result: Dict[str, Any],
+    ) -> None:
+        del context
+        self.successes.append((metadata, result))
+
+    def on_fetch_failure(
+        self,
+        context: PromptObservationContext,
+        metadata: PromptFetchMetadata,
+        error: Exception,
+    ) -> None:
+        del context
+        self.failures.append((metadata, error))
+
+
+class InstrumentedPromptProvider(BasePromptProvider):
+    """Simple provider that exercises the observability hooks."""
+
+    def __init__(
+        self,
+        fail: bool = False,
+        observability: Optional[PromptObservability] = None,
+    ):
+        super().__init__(observability=observability)
+        self.fail = fail
+
+    async def get_prompt(
+        self,
+        name: str,
+        version: Optional[str] = None,
+        prompt_variables: Optional[Dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> FetchedPrompt:
+        del kwargs, prompt_variables
+
+        metadata = PromptFetchMetadata(
+            prompt_name=name,
+            provider_name="instrumented",
+            version=version,
+            prompt_variables={},
+        )
+
+        context = self.observability.on_fetch_start(metadata, langfuse_client=None)
+
+        try:
+            if self.fail:
+                raise RuntimeError("forced failure")
+
+            prompt = FetchedPrompt(
+                name=name,
+                version=version,
+                agent_config=AgentConfig(
+                    task=TaskConfig(description="desc", expected_output="ok")
+                ),
+            )
+
+            self.observability.on_fetch_success(
+                context, metadata, {"version": prompt.version}
+            )
+
+            return prompt
+        except Exception as exc:
+            self.observability.on_fetch_failure(context, metadata, exc)
+            raise
 
 
 class TestBasePromptProvider:
@@ -180,6 +281,72 @@ class TestBasePromptProvider:
         # Variables should be included in description
         assert "cardiology" in prompt.agent_config.task.description
         assert "John" in prompt.agent_config.task.description
+
+
+class TestPromptObservabilityHooks:
+    """Tests that the observability hooks are invoked."""
+
+    @pytest.mark.asyncio
+    async def test_success_records_events(self):
+        observer = RecordingObservability()
+        provider = InstrumentedPromptProvider(observability=observer)
+
+        prompt = await provider.get_prompt("obs-success")
+
+        assert len(observer.starts) == 1
+        assert len(observer.successes) == 1
+        assert observer.successes[0][0].prompt_name == "obs-success"
+        assert observer.successes[0][1]["version"] == prompt.version
+        assert not observer.failures
+
+    @pytest.mark.asyncio
+    async def test_failure_records_events(self):
+        observer = RecordingObservability()
+        provider = InstrumentedPromptProvider(observability=observer, fail=True)
+
+        with pytest.raises(RuntimeError):
+            await provider.get_prompt("obs-failure")
+
+        assert len(observer.starts) == 1
+        assert len(observer.failures) == 1
+        assert observer.failures[0][0].prompt_name == "obs-failure"
+
+
+class TestPromptObservabilityFactory:
+    """Ensure the prompt factory reuses the shared observability instance."""
+
+    def test_factory_reuses_shared_observability(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        observer = RecordingObservability()
+        set_prompt_observability(observer)
+        reset_prompt_provider()
+
+        class DummyPromptProvider(BasePromptProvider):
+            def __init__(self, observability: Optional[PromptObservability] = None):
+                super().__init__(observability=observability)
+
+            async def get_prompt(self, name, **kwargs):
+                return FetchedPrompt(
+                    name=name,
+                    agent_config=AgentConfig(
+                        task=TaskConfig(description="dummy", expected_output="ok")
+                    ),
+                )
+
+        monkeypatch.setattr(
+            "echo.prompts.factory.LangfusePromptProvider",
+            DummyPromptProvider,
+        )
+
+        provider_one = get_prompt_provider()
+        provider_two = get_prompt_provider()
+
+        assert provider_one is provider_two
+        assert provider_one.observability is observer
+
+        reset_prompt_provider()
+        reset_prompt_observability()
 
 
 class TestSingletonPattern:

@@ -490,6 +490,34 @@ Hooks are called when activation happens via `await agent.activate_skill(...)`. 
 Existing agents that don't pass `skills=` are unaffected. The new kwargs default to `skills=None`, in which case all skill machinery is bypassed and behavior is byte-for-byte identical to a no-skills agent. `pip install -U` is safe.
 
 A runnable demonstration of both modes is at `examples/skill_agent_usage.py`.
+## Prompt Observability
+
+Echo ships with a Langfuse-backed prompt observability surface that automatically records fetch start, success, and failure events for every prompt retrieval. When you configure the Langfuse environment (`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and optional `LANGFUSE_BASE_URL`) the SDK instantiates `LangfusePromptObservability` and emits a Langfuse span for each prompt combination.
+
+### Out-of-the-box telemetry
+
+- Each `LangfusePromptProvider` fetch now calls into `PromptObservability` with `PromptFetchMetadata` (prompt name, version, variables, provider) so both Langfuse spans and SDK logs capture the same payload.
+- `LangfusePromptObservability` updates the span on success/failure, records duration, and logs a summary through `logging.getLogger("echo.prompts.observability")`.
+
+### Custom instrumentation
+
+Swap out the default hooks before you request a provider to plug your own logging/metrics system.
+
+```python
+from echo.prompts import (
+    PromptObservability,
+    set_prompt_observability,
+    get_prompt_provider,
+)
+
+class MyObservability(PromptObservability):
+    ...
+
+set_prompt_observability(MyObservability())
+provider = get_prompt_provider()
+```
+
+`PromptFetchMetadata` exposes the prompt payload for each hook, and the SDK exposes `PromptObservationContext` plus `PromptTelemetryConfig` if you need to share configuration.
 
 ## Conversation Context
 

@@ -4,11 +4,14 @@ import os
 from typing import Optional
 
 from .base import BasePromptProvider
+from .observability import PromptObservability, get_prompt_observability
 
 _provider_instance: Optional[BasePromptProvider] = None
 
 
-def get_prompt_provider(reset: bool = False) -> BasePromptProvider:
+def get_prompt_provider(
+    reset: bool = False, observability: Optional[PromptObservability] = None
+) -> BasePromptProvider:
     """
     Get prompt provider singleton.
 
@@ -16,6 +19,7 @@ def get_prompt_provider(reset: bool = False) -> BasePromptProvider:
 
     Args:
         reset: Force create new instance (useful for testing)
+        observability: Optional custom hooks for prompt fetch events.
 
     Returns:
         BasePromptProvider singleton instance
@@ -31,7 +35,9 @@ def get_prompt_provider(reset: bool = False) -> BasePromptProvider:
         if provider == "langfuse":
             from .langfuse_provider import LangfusePromptProvider
 
-            _provider_instance = LangfusePromptProvider()
+            _provider_instance = LangfusePromptProvider(
+                observability=observability or get_prompt_observability()
+            )
         else:
             raise ValueError(f"Unsupported provider: {provider}")
 
