@@ -61,6 +61,9 @@ class ElicitationDetails(BaseModel):
     input: Dict[str, Any]
     meta: Optional[Dict[str, Any]] = Field(default=None, alias="_meta")
     status: Optional[ElicitationStatus] = None
+    hidden_message: Optional[str] = None
+    disp_toast_msg: Optional[str] = None
+    mcp_meta_fields: Optional[list[str]] = None
 
 
 class ElicitationResponse(BaseModel):
