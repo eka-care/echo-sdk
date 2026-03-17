@@ -147,7 +147,7 @@ class MCPConnectionManager:
         async with self._locks[self._server_id]:
             self._tools_cache.pop(self._server_id, None)
 
-    async def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
+    async def execute_tool(self, tool_name: str, arguments: Dict[str, Any], meta: Optional[Dict[str, Any]]=None) -> Any:
         """
         Execute tool with simple one-retry logic.
 
@@ -168,7 +168,7 @@ class MCPConnectionManager:
 
         try:
             # Try once with current connection
-            result = await conn.session.call_tool(tool_name, arguments=arguments)
+            result = await conn.session.call_tool(tool_name, arguments=arguments, meta=meta)
             conn.last_used = time.time()
             logger.debug(f"Successfully executed tool: {tool_name}")
             return result

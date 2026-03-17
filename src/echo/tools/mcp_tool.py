@@ -73,8 +73,9 @@ class MCPTool(BaseTool):
         """
         try:
             # TODO: if you need any params from tool context, figure it out here
+            meta = kwargs.pop("meta", {})
             result = await self._manager.execute_tool(
-                tool_name=self.name, arguments=kwargs
+                tool_name=self.name, arguments=kwargs, meta=meta
             )
 
             structured_content = (
