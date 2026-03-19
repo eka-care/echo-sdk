@@ -46,7 +46,7 @@ class MCPConnectionManager:
     """
 
     # Class-level shared state
-    MAX_CONNECTIONS: ClassVar[int] = 20
+    MAX_CONNECTIONS: ClassVar[int] = 50
     _connections: ClassVar[Dict[str, MCPConnection]] = {}
     _locks: ClassVar[Dict[str, asyncio.Lock]] = {}
     _cleanup_task: ClassVar[Optional[asyncio.Task]] = None
@@ -147,7 +147,12 @@ class MCPConnectionManager:
         async with self._locks[self._server_id]:
             self._tools_cache.pop(self._server_id, None)
 
-    async def execute_tool(self, tool_name: str, arguments: Dict[str, Any], meta: Optional[Dict[str, Any]]=None) -> Any:
+    async def execute_tool(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> Any:
         """
         Execute tool with simple one-retry logic.
 
@@ -168,9 +173,12 @@ class MCPConnectionManager:
 
         try:
             # Try once with current connection
-            result = await conn.session.call_tool(tool_name, arguments=arguments, meta=meta)
+            result = await conn.session.call_tool(
+                tool_name, arguments=arguments, meta=meta
+            )
             conn.last_used = time.time()
             logger.debug(f"Successfully executed tool: {tool_name}")
+            conn.active_count -= 1
             return result
 
         except Exception as e:
@@ -197,17 +205,14 @@ class MCPConnectionManager:
                 result = await conn.session.call_tool(tool_name, arguments=arguments)
                 conn.last_used = time.time()
                 logger.info(f"Successfully executed {tool_name} after reconnection")
+                conn.active_count -= 1
                 return result
 
             except Exception as retry_error:
+                conn.active_count -= 1
                 raise MCPExecutionError(
                     f"Failed to execute '{tool_name}' after reconnection attempt"
                 ) from retry_error
-            finally:
-                conn.active_count -= 1
-
-        else:
-            conn.active_count -= 1
 
     async def _get_or_create_connection(self) -> MCPConnection:
         """Get connection from pool or create new one. No health checks."""

@@ -14,12 +14,14 @@ Key components:
 __version__ = "0.1.3"
 
 from .agents import *
+from .audio import *
 from .llm import *
 from .models import *
 from .tools import *
 
 __all__ = [
     "agents",
+    "audio",
     "models",
     "llm",
     "tools",
