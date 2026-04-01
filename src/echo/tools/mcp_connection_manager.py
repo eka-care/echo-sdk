@@ -73,7 +73,9 @@ class MCPConnectionManager:
                 self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         except RuntimeError:
             # No event loop yet, will start on first async call
-            pass
+            logger.error(
+                "MCPConnectionManager: No event loop available yet, cleanup task will start on first async call"
+            )
 
     async def get_tools(
         self,
@@ -147,7 +149,12 @@ class MCPConnectionManager:
         async with self._locks[self._server_id]:
             self._tools_cache.pop(self._server_id, None)
 
-    async def execute_tool(self, tool_name: str, arguments: Dict[str, Any], meta: Optional[Dict[str, Any]]=None) -> Any:
+    async def execute_tool(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> Any:
         """
         Execute tool with simple one-retry logic.
 
@@ -168,7 +175,9 @@ class MCPConnectionManager:
 
         try:
             # Try once with current connection
-            result = await conn.session.call_tool(tool_name, arguments=arguments, meta=meta)
+            result = await conn.session.call_tool(
+                tool_name, arguments=arguments, meta=meta
+            )
             conn.last_used = time.time()
             logger.debug(f"Successfully executed tool: {tool_name}")
             return result

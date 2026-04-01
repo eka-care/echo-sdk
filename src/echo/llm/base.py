@@ -4,6 +4,7 @@ Base LLM interface for Echo SDK.
 Provides a framework-agnostic interface for LLM calls.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
@@ -13,6 +14,8 @@ from echo.tools.schemas import ElicitationDetails, ElicitationResponse, ToolOutp
 
 from .config import LLMConfig
 from .schemas import LLMResponse, StreamEvent
+
+logger = logging.getLogger(__name__)
 
 
 class BaseLLM(ABC):
@@ -115,6 +118,13 @@ class BaseLLM(ABC):
             return ToolResult(tool_id=tool_call.tool_id, result=tool_result)
 
         except Exception as e:
+            logger.error(
+                "Error running tool '%s' :: context : %s :: error : %s",
+                tool_call.tool_name,
+                tool_context,
+                e,
+                exc_info=True,
+            )
             return ToolResult(
                 tool_id=tool_call.tool_id, result=f"Error running tool: {e}"
             )

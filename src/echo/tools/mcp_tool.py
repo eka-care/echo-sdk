@@ -5,10 +5,13 @@ Wraps tools discovered from MCP servers behind the BaseTool interface,
 enabling seamless use with all LLM providers and framework adapters.
 """
 
+import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from .base_tool import BaseTool
 from .schemas import ElicitationDetails, MCPExecutionError
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .mcp_connection_manager import MCPConnectionManager
@@ -99,6 +102,8 @@ class MCPTool(BaseTool):
             return str(result)
 
         except MCPExecutionError as e:
+            logger.error("MCP tool '%s' execution failed: %s", self.name, e)
             return f"Tool execution failed: {str(e)}"
         except Exception as e:
+            logger.critical("Unexpected error executing MCP tool '%s': %s", self.name, e, exc_info=True)
             return f"Unexpected error: {str(e)}"

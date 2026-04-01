@@ -4,6 +4,7 @@ Base agent interface for Echo SDK.
 Provides a framework-agnostic interface for agents with adapters.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Optional
 
@@ -13,6 +14,8 @@ from echo.llm.schemas import StreamEvent, StreamEventType
 from echo.tools.base_tool import BaseTool
 
 from .schemas import AgentResult
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from echo.models.user_conversation import ConversationContext
@@ -146,6 +149,11 @@ class BaseAgent(ABC):
             )
 
         except Exception as e:
+            context_info = str(context.system_context) if context else ""
+            logger.error(
+                f"Agent {self.name} failed during run: {e}, with context: {context_info}",
+                exc_info=True,
+            )
             return AgentResult(
                 llm_response=None,
                 context=context,

@@ -2,6 +2,7 @@
 AWS Bedrock LLM implementation using Converse API.
 """
 
+import logging
 import uuid
 from typing import Any, AsyncGenerator, List, Optional, Tuple
 
@@ -21,6 +22,8 @@ from echo.tools.schemas import ElicitationResponse
 from .base import BaseLLM
 from .config import LLMConfig
 from .schemas import LLMResponse, StreamEvent, StreamEventType, VerboseResponseItem
+
+logger = logging.getLogger(__name__)
 
 
 class BedrockLLM(BaseLLM):
@@ -416,6 +419,7 @@ class BedrockLLM(BaseLLM):
                     break
 
             except Exception as e:
+                logger.error("BedrockLLM streaming error: %s", e, exc_info=True)
                 yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
                 return
 
