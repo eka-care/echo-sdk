@@ -181,11 +181,15 @@ class GeminiLLM(BaseLLM):
         iterations = self.max_iterations if tool_config else 1
 
         for _ in range(iterations):
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=contents,
-                config=config,
-            )
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=contents,
+                    config=config,
+                )
+            except Exception as e:
+                logger.error("GeminiLLM invoke error: %s", e, exc_info=True)
+                raise
 
             assistant_msg = self._parse_response(response, msg_id)
             context.add_message(assistant_msg)

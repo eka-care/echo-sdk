@@ -5,6 +5,7 @@ Can be configured with custom persona, task description, and tools.
 Supports both regular and streaming invocation.
 """
 
+import logging
 from typing import AsyncGenerator
 
 from echo.agents.base import BaseAgent
@@ -12,6 +13,8 @@ from echo.llm.schemas import StreamEvent
 from echo.models.user_conversation import ConversationContext
 
 from .schemas import AgentResult
+
+logger = logging.getLogger(__name__)
 
 
 class GenericAgent(BaseAgent):
@@ -21,6 +24,7 @@ class GenericAgent(BaseAgent):
 
     def __init__(self, **kwargs) -> None:
         if not kwargs.get("agent_config"):
+            logger.error("Agent Config Mandatory for generic agent")
             raise Exception("Agent Config Mandatory for generic agent")
         super().__init__(**kwargs)
 

@@ -132,8 +132,12 @@ class AnthropicLLM(BaseLLM):
 
         for _ in range(iterations):
 
-            # Call Anthropic
-            response = self.client.messages.create(**request_kwargs)
+            try:
+                # Call Anthropic
+                response = self.client.messages.create(**request_kwargs)
+            except Exception as e:
+                logger.error("AnthropicLLM invoke error: %s", e, exc_info=True)
+                raise
 
             # Parse response into Message
             assistant_msg = self._parse_response(response, msg_id)
