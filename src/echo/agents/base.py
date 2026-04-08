@@ -119,6 +119,7 @@ class BaseAgent(ABC):
             system_prompt += f"Your goal is: {self.goal}\n\n"
 
         if not self.task_description:
+            logger.error("Task description is required for agent: %s", self.name)
             raise Exception("Task description is required")
         system_prompt += f"{self.task_description} \n\n"
 
@@ -165,16 +166,24 @@ class BaseAgent(ABC):
         self, context: "ConversationContext", out_msg_id: str
     ) -> AsyncGenerator[StreamEvent, None]:
         """Run the agent with streaming."""
-        # Build system prompt with task(mandatory) & expected output,role(optional)
-        system_prompt = self._build_system_prompt(skip_goal=True)
+        try:
+            # Build system prompt with task(mandatory) & expected output,role(optional)
+            system_prompt = self._build_system_prompt(skip_goal=True)
 
-        async for event in self.llm.invoke_stream(
-            context=context,
-            tools=self.tools,
-            system_prompt=system_prompt,
-            out_msg_id=out_msg_id,
-        ):
-            yield event
+            async for event in self.llm.invoke_stream(
+                context=context,
+                tools=self.tools,
+                system_prompt=system_prompt,
+                out_msg_id=out_msg_id,
+            ):
+                yield event
+        except Exception as e:
+            context_info = str(context.system_context) if context else ""
+            logger.error(
+                f"Agent {self.name} failed during stream: {e}, with context: {context_info}",
+                exc_info=True,
+            )
+            yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
 
     # --- Framework Adapters ---
     def to_crewai_agent(self, **kwargs) -> Any:

@@ -130,8 +130,12 @@ class BedrockLLM(BaseLLM):
 
         for _ in range(iterations):
 
-            # Call Bedrock Converse API
-            response = self.client.converse(**request_kwargs)
+            try:
+                # Call Bedrock Converse API
+                response = self.client.converse(**request_kwargs)
+            except Exception as e:
+                logger.error("BedrockLLM invoke error: %s", e, exc_info=True)
+                raise
 
             # Parse response into Message and add to context and bedrock messages list
             assistant_msg = self._parse_response(response, msg_id)

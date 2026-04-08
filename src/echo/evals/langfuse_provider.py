@@ -5,8 +5,6 @@ import os
 import logging
 from typing import Callable, Optional
 
-from echo.agents.config import AgentConfig, PersonaConfig, TaskConfig
-
 from .base import BaseEvalProvider
 
 logger = logging.getLogger(__name__)
@@ -65,7 +63,7 @@ class LangfuseEvalProvider(BaseEvalProvider):
             langfuse_dataset = await loop.run_in_executor(
                 None, lambda: self.client.get_dataset(dataset_name)
             )
-            
+
             langfuse_dataset.run_experiment(
                 name=name,
                 description=description,

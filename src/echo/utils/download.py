@@ -55,7 +55,11 @@ def download_url_as_bytes(url: str) -> bytes:
     when a file was uploaded to S3 via multipart POST instead of a raw
     binary PUT.
     """
-    with httpx.Client(timeout=30.0) as client:
-        resp = client.get(str(url))
-        resp.raise_for_status()
-        return _strip_multipart_wrapper(resp.content)
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.get(str(url))
+            resp.raise_for_status()
+            return _strip_multipart_wrapper(resp.content)
+    except Exception as e:
+        logger.error("Failed to download from URL %s: %s", url, e, exc_info=True)
+        raise

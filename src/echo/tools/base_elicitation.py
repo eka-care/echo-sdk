@@ -5,11 +5,14 @@ Elicitation tools return UI component specifications that tell the frontend
 what to render to collect structured user input.
 """
 
+import logging
 from abc import abstractmethod
 from typing import Any, Dict, List, Optional
 
 from .base_tool import BaseTool
 from .schemas import ElicitationComponent, ElicitationDetails, ElicitationStatus
+
+logger = logging.getLogger(__name__)
 
 
 class BaseElicitationTool(BaseTool):
@@ -56,6 +59,11 @@ class BaseElicitationTool(BaseTool):
 
         if component_enum is None:
             valid_components = [c.value for c in self.elicitation_components]
+            logger.error(
+                "Invalid elicitation component '%s'. Valid: %s",
+                component,
+                valid_components,
+            )
             raise ValueError(
                 f"Invalid component: {component}. Valid: {valid_components}"
             )

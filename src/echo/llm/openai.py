@@ -154,8 +154,12 @@ class OpenAILLM(BaseLLM):
 
         for _ in range(iterations):
 
-            # Call OpenAI
-            response = self.client.chat.completions.create(**request_kwargs)
+            try:
+                # Call OpenAI
+                response = self.client.chat.completions.create(**request_kwargs)
+            except Exception as e:
+                logger.error("OpenAI invoke error: %s", e, exc_info=True)
+                raise
 
             # Parse response into Message
             assistant_msg = self._parse_response(response, msg_id)

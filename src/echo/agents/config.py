@@ -6,11 +6,14 @@ Pydantic models for YAML-based agent/task configuration.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Optional
 
 import yaml
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 
 class PersonaConfig(BaseModel):
@@ -54,6 +57,7 @@ def load_agent_config(config_path: Path) -> AgentConfig:
         Config with .agent and .task attributes
     """
     if not config_path.exists():
+        logger.error("Config file not found: %s", config_path)
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
     with open(config_path, "r") as f:

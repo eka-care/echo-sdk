@@ -73,7 +73,7 @@ class MCPConnectionManager:
                 self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         except RuntimeError:
             # No event loop yet, will start on first async call
-            logger.error(
+            logger.debug(
                 "MCPConnectionManager: No event loop available yet, cleanup task will start on first async call"
             )
 
