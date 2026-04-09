@@ -70,8 +70,6 @@ class ElicitationResponse(BaseModel):
     tool_id: str
     tool_name: str
     details: ElicitationDetails
-    meta: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
 
 
 class MCPTransport(str, Enum):
