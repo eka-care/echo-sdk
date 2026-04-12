@@ -72,8 +72,10 @@ class LangfusePromptProvider(BasePromptProvider):
                 None, lambda: self.client.get_prompt(name, **kwargs)
             )
 
-            # Compile with variables NOW
-            task_description = langfuse_prompt.compile(**prompt_variables)
+            # Compile with variables NOW — signature declares prompt_variables
+            # as Optional, but Langfuse's compile(**x) rejects None. Normalize
+            # at the provider boundary, right before the ** unpack.
+            task_description = langfuse_prompt.compile(**(prompt_variables or {}))
 
             # Extract config fields (provider-specific logic stays HERE)
             config = getattr(langfuse_prompt, "config", {}) or {}

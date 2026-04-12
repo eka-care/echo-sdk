@@ -90,7 +90,10 @@ class LLMConfig(BaseModel):
     def get_provider_supported_model_ids(self) -> Set[str]:
         """Get the supported model IDs for the LLM."""
         if self.provider == "bedrock":
-            return set(["anthropic.claude-3-haiku-20240307-v1:0"])
+            return set([
+                "anthropic.claude-3-haiku-20240307-v1:0",
+                "anthropic.claude-sonnet-4-20250514-v1:0",
+            ])
         elif self.provider == "openai":
             return set(
                 [
