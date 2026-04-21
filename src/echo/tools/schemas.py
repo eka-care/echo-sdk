@@ -104,6 +104,23 @@ class MCPServerConfig(BaseModel):
     # Connection management
     connection_ttl: int = 600  # TTL for cleanup (10 minutes)
 
+    # Connection pool keying.
+    # Header names (case-insensitive) whose values participate in the pool
+    # cache key alongside (transport, url). Default None/empty → pool by
+    # (transport, url) only, so every caller to the same URL shares one
+    # connection. Set this when the same URL serves genuinely different
+    # state for different values of a stable header — e.g.
+    # pool_key_headers=["x-workspace-id"] when each workspace has a
+    # different tool catalogue.
+    #
+    # Headers NOT in this list are still sent when the connection is
+    # opened, but they do NOT create separate pool entries. That means
+    # the first caller's value is what sits on the pooled connection;
+    # callers MUST NOT rely on per-call variation for unlisted headers
+    # (move per-request values into tool-call `meta` instead), or they
+    # will silently leak across callers.
+    pool_key_headers: Optional[List[str]] = None
+
     # Tool filtering (optional)
     tool_include: Optional[List[str]] = None  # Whitelist: only these tools available
     tool_exclude: Optional[List[str]] = None  # Blacklist: exclude these tools

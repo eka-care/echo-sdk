@@ -7,6 +7,7 @@ for MCP servers with resilience features.
 
 import asyncio
 import logging
+import os
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, ClassVar, Dict, List, Optional
@@ -46,7 +47,9 @@ class MCPConnectionManager:
     """
 
     # Class-level shared state
-    MAX_CONNECTIONS: ClassVar[int] = 20
+    MAX_CONNECTIONS: ClassVar[int] = int(
+        os.environ.get("ECHO_MCP_MAX_CONNECTIONS", "1000")
+    )
     _connections: ClassVar[Dict[str, MCPConnection]] = {}
     _locks: ClassVar[Dict[str, asyncio.Lock]] = {}
     _cleanup_task: ClassVar[Optional[asyncio.Task]] = None
@@ -357,15 +360,43 @@ class MCPConnectionManager:
             url=str(self._config.url), http_client=http_client
         )
 
+    @staticmethod
+    def _pool_key_header_subset(
+        headers: Optional[Dict[str, str]],
+        pool_key_headers: Optional[List[str]],
+    ) -> Dict[str, str]:
+        """
+        Extract the subset of headers that participate in pool keying.
+
+        Header name matching is case-insensitive (HTTP header names are).
+        Returns a new dict with lower-cased keys so hashing is stable
+        regardless of the casing the caller used.
+        """
+        if not pool_key_headers or not headers:
+            return {}
+        wanted = {h.lower() for h in pool_key_headers}
+        return {k.lower(): v for k, v in headers.items() if k.lower() in wanted}
+
     def _generate_server_id(self, config: MCPServerConfig) -> str:
-        """Generate unique ID for connection pooling."""
+        """
+        Generate unique ID for connection pooling.
+
+        HTTP transports: pool by (transport, url) plus the values of any
+        headers listed in `config.pool_key_headers`. Unlisted headers do
+        NOT participate — see MCPServerConfig.pool_key_headers for why.
+
+        STDIO: unchanged — pools by (command, args, env).
+        """
         import hashlib
 
         import orjson
 
         if config.transport in [MCPTransport.SSE, MCPTransport.STREAMABLE_HTTP]:
+            pool_headers = self._pool_key_header_subset(
+                config.headers, config.pool_key_headers
+            )
             headers_hash = hashlib.md5(
-                orjson.dumps(config.headers or {}, option=orjson.OPT_SORT_KEYS)
+                orjson.dumps(pool_headers, option=orjson.OPT_SORT_KEYS)
             ).hexdigest()[:8]
             return f"{config.transport.value}:{config.url}:{headers_hash}"
         else:  # STDIO
