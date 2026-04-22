@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, HttpUrl, field_serializer
 
@@ -13,19 +13,19 @@ class MCPError(Exception):
 
 
 class MCPConfigError(MCPError):
-    """Configuration errors (no retry)."""
+    """Configuration errors."""
 
     pass
 
 
 class MCPConnectionError(MCPError):
-    """Connection failures (retryable)."""
+    """Connection failures (e.g., transport or initialize failed)."""
 
     pass
 
 
 class MCPExecutionError(MCPError):
-    """Tool execution failures after all retries."""
+    """Tool execution failures."""
 
     pass
 
@@ -100,23 +100,6 @@ class MCPServerConfig(BaseModel):
     command: Optional[str] = None
     args: Optional[List[str]] = None
     env: Optional[Dict[str, str]] = None
-
-    # Session cache management (only applies when caller passes user_session_id
-    # to execute_tool; fresh-session-per-call path is unaffected).
-    # session_idle_ttl: seconds since last use before eviction.
-    # session_absolute_ttl: hard cap from first connect; guards against sessions
-    #   outliving the caller's auth-token lifetime.
-    session_idle_ttl: int = 600
-    session_absolute_ttl: int = 3600
-
-    # Tool-schema cache keying.
-    # Header names (case-insensitive) whose values participate in the tool
-    # cache key alongside (transport, url). Default None/empty → tools from
-    # the same URL are shared across all callers. Set this when the same URL
-    # returns different tool catalogues for different header values — e.g.
-    # tool_cache_key_headers=["x-workspace-id"] when each workspace has its
-    # own tool set.
-    tool_cache_key_headers: Optional[List[str]] = None
 
     # Tool filtering (optional)
     tool_include: Optional[List[str]] = None  # Whitelist: only these tools available
