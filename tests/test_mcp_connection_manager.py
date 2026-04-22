@@ -295,3 +295,59 @@ async def test_cached_session_failure_evicts():
 
     # Session should have been evicted so next call gets a fresh one
     assert "conv-y" not in MCPConnectionManager._sessions
+
+
+async def test_forget_session_closes_and_removes():
+    cfg = build_config()
+    mgr = MCPConnectionManager(cfg)
+    fake_session = make_fake_session()
+    close_mock = AsyncMock()
+
+    with patch.object(MCPConnectionManager, "_open_session",
+                      new=AsyncMock(return_value=(fake_session, MagicMock(), None))):
+        with patch.object(MCPConnectionManager, "_close_parts", new=close_mock):
+            await mgr.execute_tool("ping", {}, user_session_id="conv-z")
+            assert "conv-z" in MCPConnectionManager._sessions
+
+            await mgr.forget_session("conv-z")
+
+    assert "conv-z" not in MCPConnectionManager._sessions
+    assert "conv-z" not in MCPConnectionManager._session_locks
+    # close_parts was called at least once at forget time
+    assert close_mock.call_count >= 1
+
+
+async def test_forget_session_unknown_id_is_noop():
+    cfg = build_config()
+    mgr = MCPConnectionManager(cfg)
+    await mgr.forget_session("never-existed")  # no raise
+
+
+async def test_lru_eviction_when_cache_full(monkeypatch):
+    """When sessions exceeds MAX_CACHED_SESSIONS, evict idle LRU."""
+    monkeypatch.setattr(MCPConnectionManager, "MAX_CACHED_SESSIONS", 2)
+    cfg = build_config()
+    mgr = MCPConnectionManager(cfg)
+
+    async def open_mock(self_):
+        s = make_fake_session()
+        s.call_tool = AsyncMock(return_value="ok")
+        return (s, MagicMock(), None)
+
+    with patch.object(MCPConnectionManager, "_open_session",
+                      new=lambda self_: open_mock(self_)):
+        with patch.object(MCPConnectionManager, "_close_connection_static",
+                          new=AsyncMock()):
+            await mgr.execute_tool("a", {}, user_session_id="s1")
+            # Force different last_used values deterministically
+            MCPConnectionManager._sessions["s1"].last_used = 100.0
+            await mgr.execute_tool("a", {}, user_session_id="s2")
+            MCPConnectionManager._sessions["s2"].last_used = 200.0
+            await mgr.execute_tool("a", {}, user_session_id="s3")
+            # Yield once so the background close task (patched AsyncMock) can run
+            await asyncio.sleep(0)
+
+    # s1 is LRU — should have been evicted synchronously from the dict
+    assert "s1" not in MCPConnectionManager._sessions
+    assert "s2" in MCPConnectionManager._sessions
+    assert "s3" in MCPConnectionManager._sessions
