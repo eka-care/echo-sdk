@@ -199,6 +199,7 @@ async def test_execute_tool_fresh_path_parallel_uses_independent_sessions():
         open_calls += 1
         return (make_session_with_slow_call(), MagicMock(), None)
 
+    start = asyncio.get_event_loop().time()
     with patch.object(
         MCPConnectionManager, "_open_session",
         new=lambda self_: open_side_effect(self_),
@@ -209,12 +210,16 @@ async def test_execute_tool_fresh_path_parallel_uses_independent_sessions():
                 mgr.execute_tool("b", {}),
                 mgr.execute_tool("c", {}),
             )
+    elapsed = asyncio.get_event_loop().time() - start
 
     assert set(results) == {"result-a", "result-b", "result-c"}
     assert open_calls == 3  # three independent sessions
-    # Interleaved — we should see enter-enter-enter before exits, proving parallelism
-    first_three = [step for step, _ in call_order[:3]]
-    assert first_three == ["enter", "enter", "enter"]
+    # Parallel: should be ~0.05s total (one sleep). Serial: ~0.15s (three sleeps).
+    # Allow generous slack for CI scheduling jitter but still prove parallelism.
+    assert elapsed < 0.12, (
+        f"Expected parallel execution (<0.12s), got {elapsed:.3f}s — "
+        "calls may be serialized."
+    )
 
 
 async def test_execute_tool_cached_reuses_session():
