@@ -19,14 +19,13 @@ if TYPE_CHECKING:
 
 class MCPTool(BaseTool):
     """
-    Wrapper for tools discovered from an MCP server.
-    Uses manager delegation for automatic reconnection and retry logic.
+    Wrapper for tools discovered from an MCP server. Delegates execution
+    to the manager, which opens a fresh MCP session per call.
     """
 
     def __init__(
         self,
         manager: "MCPConnectionManager",
-        server_id: str,
         tool_name: str,
         tool_description: str,
         input_schema: Optional[Dict[str, Any]] = None,
@@ -35,15 +34,13 @@ class MCPTool(BaseTool):
         Initialize an MCP tool wrapper.
 
         Args:
-            manager: MCPConnectionManager for executing tools with retry
-            server_id: Unique identifier for the MCP server
+            manager: MCPConnectionManager for executing tools
             tool_name: Name of the tool from MCP server
             tool_description: Description of the tool from MCP server
             input_schema: JSON schema for tool inputs from MCP server.
                          If None, defaults to a generic query schema.
         """
         self._manager = manager
-        self._server_id = server_id
         self.name = tool_name
         self.description = tool_description
         self._input_schema = input_schema or {
@@ -65,25 +62,17 @@ class MCPTool(BaseTool):
     async def run(
         self, tool_context: Optional[Dict[str, Any]] = None, **kwargs
     ) -> str | ElicitationDetails:
-        """
-        Execute the MCP tool asynchronously.
+        """Execute the MCP tool asynchronously.
 
-        tool_context supports:
-          - "user_session_id": reuse a cached MCP session for this id.
-            Omit (or pass None) to use a fresh session per call (parallel-safe).
-          - any other keys: currently ignored.
+        tool_context is accepted for BaseTool interface compatibility but is
+        not consulted; the manager opens a fresh MCP session per call.
         """
         try:
             meta = kwargs.pop("meta", {})
-            user_session_id = None
-            if tool_context:
-                user_session_id = tool_context.get("user_session_id")
-
             result = await self._manager.execute_tool(
                 tool_name=self.name,
                 arguments=kwargs,
                 meta=meta,
-                user_session_id=user_session_id,
             )
 
             structured_content = (

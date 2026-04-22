@@ -2,7 +2,7 @@
 
 from .base_elicitation import BaseElicitationTool
 from .base_tool import BaseTool
-from .mcp_connection_manager import MCPConnection, MCPConnectionManager
+from .mcp_connection_manager import MCPConnectionManager
 from .mcp_tool import MCPTool
 from .schemas import (
     ElicitationDetails,
@@ -19,7 +19,6 @@ from .schemas import (
 __all__ = [
     "BaseElicitationTool",
     "BaseTool",
-    "MCPConnection",
     "MCPConnectionManager",
     "MCPServerConfig",
     "MCPTransport",
