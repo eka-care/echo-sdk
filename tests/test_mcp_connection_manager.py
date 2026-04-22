@@ -215,3 +215,83 @@ async def test_execute_tool_fresh_path_parallel_uses_independent_sessions():
     # Interleaved — we should see enter-enter-enter before exits, proving parallelism
     first_three = [step for step, _ in call_order[:3]]
     assert first_three == ["enter", "enter", "enter"]
+
+
+async def test_execute_tool_cached_reuses_session():
+    cfg = build_config()
+    mgr = MCPConnectionManager(cfg)
+    fake_session = make_fake_session()
+    fake_session.call_tool = AsyncMock(return_value="cached-result")
+    open_mock = AsyncMock(return_value=(fake_session, MagicMock(), None))
+
+    with patch.object(MCPConnectionManager, "_open_session", new=open_mock):
+        with patch.object(MCPConnectionManager, "_close_parts", new=AsyncMock()):
+            r1 = await mgr.execute_tool("ping", {}, user_session_id="conv-1")
+            r2 = await mgr.execute_tool("ping", {}, user_session_id="conv-1")
+
+    assert r1 == "cached-result" and r2 == "cached-result"
+    assert open_mock.call_count == 1  # session reused
+    assert "conv-1" in MCPConnectionManager._sessions
+
+
+async def test_execute_tool_cached_different_ids_get_different_sessions():
+    cfg = build_config()
+    mgr = MCPConnectionManager(cfg)
+
+    open_calls = 0
+    async def make_session(self_):
+        nonlocal open_calls
+        open_calls += 1
+        s = make_fake_session()
+        s.call_tool = AsyncMock(return_value=f"session-{open_calls}")
+        return (s, MagicMock(), None)
+
+    with patch.object(MCPConnectionManager, "_open_session",
+                      new=lambda self_: make_session(self_)):
+        await mgr.execute_tool("ping", {}, user_session_id="conv-a")
+        await mgr.execute_tool("ping", {}, user_session_id="conv-b")
+
+    assert open_calls == 2
+    assert set(MCPConnectionManager._sessions.keys()) == {"conv-a", "conv-b"}
+
+
+async def test_concurrent_get_or_create_returns_single_session():
+    """Two tasks racing on the same user_session_id must open ONE session."""
+    cfg = build_config()
+    mgr = MCPConnectionManager(cfg)
+
+    open_calls = 0
+    async def slow_open(self_):
+        nonlocal open_calls
+        open_calls += 1
+        await asyncio.sleep(0.05)
+        s = make_fake_session()
+        s.call_tool = AsyncMock(return_value="ok")
+        return (s, MagicMock(), None)
+
+    with patch.object(MCPConnectionManager, "_open_session",
+                      new=lambda self_: slow_open(self_)):
+        await asyncio.gather(
+            mgr.execute_tool("ping", {}, user_session_id="conv-x"),
+            mgr.execute_tool("ping", {}, user_session_id="conv-x"),
+            mgr.execute_tool("ping", {}, user_session_id="conv-x"),
+        )
+
+    assert open_calls == 1  # lock prevented duplicate creates
+    assert len(MCPConnectionManager._sessions) == 1
+
+
+async def test_cached_session_failure_evicts():
+    cfg = build_config()
+    mgr = MCPConnectionManager(cfg)
+    fake_session = make_fake_session()
+    fake_session.call_tool = AsyncMock(side_effect=RuntimeError("server blew up"))
+
+    with patch.object(MCPConnectionManager, "_open_session",
+                      new=AsyncMock(return_value=(fake_session, MagicMock(), None))):
+        with patch.object(MCPConnectionManager, "_close_parts", new=AsyncMock()):
+            with pytest.raises(MCPExecutionError):
+                await mgr.execute_tool("boom", {}, user_session_id="conv-y")
+
+    # Session should have been evicted so next call gets a fresh one
+    assert "conv-y" not in MCPConnectionManager._sessions
