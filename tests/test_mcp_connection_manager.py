@@ -154,3 +154,64 @@ def test_tool_cache_ignores_unlisted_headers():
     mgr_a = MCPConnectionManager(cfg_a)
     mgr_b = MCPConnectionManager(cfg_b)
     assert mgr_a._tool_cache_key == mgr_b._tool_cache_key
+
+
+async def test_execute_tool_fresh_path_opens_and_closes():
+    cfg = build_config()
+    mgr = MCPConnectionManager(cfg)
+    fake_session = make_fake_session()
+    fake_session.call_tool = AsyncMock(return_value="fresh-result")
+    open_mock = AsyncMock(return_value=(fake_session, MagicMock(), None))
+    close_mock = AsyncMock()
+
+    with patch.object(MCPConnectionManager, "_open_session", new=open_mock):
+        with patch.object(MCPConnectionManager, "_close_parts", new=close_mock):
+            result = await mgr.execute_tool("ping", {"arg": 1})
+
+    assert result == "fresh-result"
+    assert open_mock.call_count == 1
+    assert close_mock.call_count == 1
+    # no cached sessions
+    assert len(MCPConnectionManager._sessions) == 0
+
+
+async def test_execute_tool_fresh_path_parallel_uses_independent_sessions():
+    """Parallel fresh calls each get their own session — no serialization."""
+    cfg = build_config()
+    mgr = MCPConnectionManager(cfg)
+
+    call_order = []
+
+    async def slow_call_tool(name, arguments, meta=None):
+        call_order.append(("enter", name))
+        await asyncio.sleep(0.05)
+        call_order.append(("exit", name))
+        return f"result-{name}"
+
+    def make_session_with_slow_call():
+        s = make_fake_session()
+        s.call_tool = AsyncMock(side_effect=slow_call_tool)
+        return s
+
+    open_calls = 0
+    async def open_side_effect(self_mgr):
+        nonlocal open_calls
+        open_calls += 1
+        return (make_session_with_slow_call(), MagicMock(), None)
+
+    with patch.object(
+        MCPConnectionManager, "_open_session",
+        new=lambda self_: open_side_effect(self_),
+    ):
+        with patch.object(MCPConnectionManager, "_close_parts", new=AsyncMock()):
+            results = await asyncio.gather(
+                mgr.execute_tool("a", {}),
+                mgr.execute_tool("b", {}),
+                mgr.execute_tool("c", {}),
+            )
+
+    assert set(results) == {"result-a", "result-b", "result-c"}
+    assert open_calls == 3  # three independent sessions
+    # Interleaved — we should see enter-enter-enter before exits, proving parallelism
+    first_three = [step for step, _ in call_order[:3]]
+    assert first_three == ["enter", "enter", "enter"]
