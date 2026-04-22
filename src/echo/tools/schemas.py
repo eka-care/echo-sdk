@@ -1,8 +1,17 @@
+import os
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, HttpUrl, field_serializer
+
+
+def _default_mcp_tool_timeout() -> int:
+    """Read ECHO_MCP_TOOL_TIMEOUT from env, fall back to 10s."""
+    try:
+        return int(os.getenv("ECHO_MCP_TOOL_TIMEOUT", "10"))
+    except ValueError:
+        return 10
 
 
 # MCP Exception Classes
@@ -94,7 +103,7 @@ class MCPServerConfig(BaseModel):
     url: Optional[HttpUrl] = None
     headers: Optional[Dict[str, str]] = None
     timeout: int = 5
-    sse_read_timeout: int = 300
+    sse_read_timeout: int = Field(default_factory=_default_mcp_tool_timeout)
 
     # stdio options
     command: Optional[str] = None

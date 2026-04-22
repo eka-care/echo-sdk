@@ -56,7 +56,7 @@ def download_url_as_bytes(url: str) -> bytes:
     binary PUT.
     """
     try:
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=10.0) as client:
             resp = client.get(str(url))
             resp.raise_for_status()
             return _strip_multipart_wrapper(resp.content)

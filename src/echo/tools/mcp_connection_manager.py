@@ -12,6 +12,7 @@ cross-caller state bleed.
 """
 
 import logging
+from datetime import timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
@@ -109,7 +110,11 @@ class MCPConnectionManager:
             else:
                 read_stream, write_stream = transport_result
 
-            session = ClientSession(read_stream, write_stream)
+            session = ClientSession(
+                read_stream,
+                write_stream,
+                read_timeout_seconds=timedelta(seconds=self._config.sse_read_timeout),
+            )
             try:
                 await session.__aenter__()
                 await session.initialize()
