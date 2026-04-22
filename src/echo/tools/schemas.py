@@ -103,12 +103,11 @@ class MCPServerConfig(BaseModel):
 
     # Session cache management (only applies when caller passes user_session_id
     # to execute_tool; fresh-session-per-call path is unaffected).
+    # session_idle_ttl: seconds since last use before eviction.
+    # session_absolute_ttl: hard cap from first connect; guards against sessions
+    #   outliving the caller's auth-token lifetime.
     session_idle_ttl: int = 600
-    """Evict cached session after this many seconds since last use."""
-
     session_absolute_ttl: int = 3600
-    """Hard cap on cached session lifetime from first connect. Guards against
-    sessions outliving the caller's auth-token lifetime."""
 
     # Tool-schema cache keying.
     # Header names (case-insensitive) whose values participate in the tool
