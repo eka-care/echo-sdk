@@ -356,3 +356,28 @@ async def test_lru_eviction_when_cache_full(monkeypatch):
     assert "s1" not in MCPConnectionManager._sessions
     assert "s2" in MCPConnectionManager._sessions
     assert "s3" in MCPConnectionManager._sessions
+
+
+async def test_mcp_tool_passes_user_session_id_from_tool_context():
+    """MCPTool.run should pull user_session_id from tool_context and pass it through."""
+    from echo.tools.mcp_tool import MCPTool
+
+    cfg = build_config()
+    mgr = MCPConnectionManager(cfg)
+    execute_mock = AsyncMock(return_value=MagicMock(content=[], structuredContent=None))
+    mgr.execute_tool = execute_mock  # type: ignore[assignment]
+
+    tool = MCPTool(
+        manager=mgr,
+        server_id="x",
+        tool_name="ping",
+        tool_description="d",
+        input_schema={"type": "object", "properties": {}, "required": []},
+    )
+
+    await tool.run(tool_context={"user_session_id": "conv-42"}, foo="bar")
+
+    execute_mock.assert_called_once()
+    kwargs = execute_mock.call_args.kwargs
+    assert kwargs["user_session_id"] == "conv-42"
+    assert kwargs["arguments"] == {"foo": "bar"}
