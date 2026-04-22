@@ -101,25 +101,23 @@ class MCPServerConfig(BaseModel):
     args: Optional[List[str]] = None
     env: Optional[Dict[str, str]] = None
 
-    # Connection management
-    connection_ttl: int = 600  # TTL for cleanup (10 minutes)
+    # Session cache management (only applies when caller passes user_session_id
+    # to execute_tool; fresh-session-per-call path is unaffected).
+    session_idle_ttl: int = 600
+    """Evict cached session after this many seconds since last use."""
 
-    # Connection pool keying.
-    # Header names (case-insensitive) whose values participate in the pool
-    # cache key alongside (transport, url). Default None/empty → pool by
-    # (transport, url) only, so every caller to the same URL shares one
-    # connection. Set this when the same URL serves genuinely different
-    # state for different values of a stable header — e.g.
-    # pool_key_headers=["x-workspace-id"] when each workspace has a
-    # different tool catalogue.
-    #
-    # Headers NOT in this list are still sent when the connection is
-    # opened, but they do NOT create separate pool entries. That means
-    # the first caller's value is what sits on the pooled connection;
-    # callers MUST NOT rely on per-call variation for unlisted headers
-    # (move per-request values into tool-call `meta` instead), or they
-    # will silently leak across callers.
-    pool_key_headers: Optional[List[str]] = None
+    session_absolute_ttl: int = 3600
+    """Hard cap on cached session lifetime from first connect. Guards against
+    sessions outliving the caller's auth-token lifetime."""
+
+    # Tool-schema cache keying.
+    # Header names (case-insensitive) whose values participate in the tool
+    # cache key alongside (transport, url). Default None/empty → tools from
+    # the same URL are shared across all callers. Set this when the same URL
+    # returns different tool catalogues for different header values — e.g.
+    # tool_cache_key_headers=["x-workspace-id"] when each workspace has its
+    # own tool set.
+    tool_cache_key_headers: Optional[List[str]] = None
 
     # Tool filtering (optional)
     tool_include: Optional[List[str]] = None  # Whitelist: only these tools available
