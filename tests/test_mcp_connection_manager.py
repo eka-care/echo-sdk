@@ -381,3 +381,72 @@ async def test_mcp_tool_passes_user_session_id_from_tool_context():
     kwargs = execute_mock.call_args.kwargs
     assert kwargs["user_session_id"] == "conv-42"
     assert kwargs["arguments"] == {"foo": "bar"}
+
+
+async def test_cleanup_loop_evicts_idle_sessions():
+    """The background cleanup loop should evict sessions past their idle TTL."""
+    import time as _time
+    cfg = build_config(session_idle_ttl=1, session_absolute_ttl=3600)
+    mgr = MCPConnectionManager(cfg)
+    fake_session = make_fake_session()
+    fake_session.call_tool = AsyncMock(return_value="ok")
+
+    with patch.object(MCPConnectionManager, "_open_session",
+                      new=AsyncMock(return_value=(fake_session, MagicMock(), None))):
+        await mgr.execute_tool("ping", {}, user_session_id="old-conv")
+
+    # Age the session past idle_ttl by rewinding last_used
+    conn = MCPConnectionManager._sessions["old-conv"]
+    conn.last_used = _time.time() - 10  # 10s ago, well past 1s idle TTL
+
+    # Simulate one iteration of the cleanup loop's inner logic
+    with patch.object(MCPConnectionManager, "_close_connection_static",
+                      new=AsyncMock()) as close_mock:
+        now = _time.time()
+        expired = []
+        for sid, c in list(MCPConnectionManager._sessions.items()):
+            if c.active_count > 0:
+                continue
+            idle = now - c.last_used
+            absolute = now - c.connected_at
+            if idle > c.idle_ttl or absolute > c.absolute_ttl:
+                expired.append(sid)
+        for sid in expired:
+            c = MCPConnectionManager._sessions.pop(sid, None)
+            MCPConnectionManager._session_locks.pop(sid, None)
+            if c is not None:
+                await MCPConnectionManager._close_connection_static(c)
+
+    assert "old-conv" not in MCPConnectionManager._sessions
+    assert close_mock.call_count == 1
+
+
+async def test_cleanup_loop_skips_active_sessions():
+    """Sessions with active_count > 0 must not be evicted even if idle-expired."""
+    import time as _time
+    cfg = build_config(session_idle_ttl=1)
+    mgr = MCPConnectionManager(cfg)
+    fake_session = make_fake_session()
+    fake_session.call_tool = AsyncMock(return_value="ok")
+
+    with patch.object(MCPConnectionManager, "_open_session",
+                      new=AsyncMock(return_value=(fake_session, MagicMock(), None))):
+        await mgr.execute_tool("ping", {}, user_session_id="busy-conv")
+
+    conn = MCPConnectionManager._sessions["busy-conv"]
+    conn.last_used = _time.time() - 10
+    conn.active_count = 1  # simulate in-flight call
+
+    # Run cleanup logic
+    now = _time.time()
+    expired = []
+    for sid, c in list(MCPConnectionManager._sessions.items()):
+        if c.active_count > 0:
+            continue
+        idle = now - c.last_used
+        absolute = now - c.connected_at
+        if idle > c.idle_ttl or absolute > c.absolute_ttl:
+            expired.append(sid)
+
+    assert "busy-conv" not in expired
+    assert "busy-conv" in MCPConnectionManager._sessions

@@ -254,14 +254,17 @@ async def main():
     print("Choose an option:")
     print("1. Discover tools from MCP servers")
     print("2. Run conversation")
+    print("3. Fresh vs cached session demo")
     print()
 
-    choice = input("Enter choice (1 or 2): ").strip()
+    choice = input("Enter choice (1, 2, or 3): ").strip()
 
     if choice == "1":
         await discover_tools_from_servers()
     elif choice == "2":
         await run_conversation()
+    elif choice == "3":
+        await example_fresh_vs_cached_sessions()
     else:
         print("Invalid choice. Running conversation by default.")
         await run_conversation()
