@@ -212,19 +212,59 @@ async def run_conversation():
     await MCPConnectionManager.cleanup_all()
 
 
+async def example_fresh_vs_cached_sessions():
+    """
+    Demonstrates the two execute_tool modes introduced in the session caching
+    redesign:
+
+    - No user_session_id: fresh session per call. Parallel-safe. Use for
+      telephony / agent fan-out where multiple tool calls should run
+      concurrently.
+    - With user_session_id: cached session reused across calls sharing that
+      id. Saves one initialize RTT per call after the first. Serializes on
+      the server session. Use when init latency matters more than parallelism.
+    """
+    config = MCPServerConfig(
+        transport=MCPTransport.STREAMABLE_HTTP,
+        url="https://your-mcp-server/mcp",
+        headers={"Authorization": "Bearer ..."},
+    )
+    manager = MCPConnectionManager(config)
+
+    # Fresh session per call — parallel-safe, no caching
+    r1 = await manager.execute_tool("lookup", {"id": "x"})
+    print("Fresh call result:", r1)
+
+    # Cached session for a single conversation — serializes but saves init RTT
+    try:
+        r2 = await manager.execute_tool(
+            "lookup", {"id": "y"}, user_session_id="conv-123",
+        )
+        r3 = await manager.execute_tool(
+            "lookup", {"id": "z"}, user_session_id="conv-123",
+        )
+        print("Cached calls:", r2, r3)
+    finally:
+        # Always release the cached session when the conversation ends
+        await manager.forget_session("conv-123")
+
+
 async def main():
     """Main entry point."""
     print("Choose an option:")
     print("1. Discover tools from MCP servers")
     print("2. Run conversation")
+    print("3. Fresh vs cached session demo")
     print()
 
-    choice = input("Enter choice (1 or 2): ").strip()
+    choice = input("Enter choice (1, 2, or 3): ").strip()
 
     if choice == "1":
         await discover_tools_from_servers()
     elif choice == "2":
         await run_conversation()
+    elif choice == "3":
+        await example_fresh_vs_cached_sessions()
     else:
         print("Invalid choice. Running conversation by default.")
         await run_conversation()

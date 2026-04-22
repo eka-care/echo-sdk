@@ -66,19 +66,24 @@ class MCPTool(BaseTool):
         self, tool_context: Optional[Dict[str, Any]] = None, **kwargs
     ) -> str | ElicitationDetails:
         """
-        Execute the MCP tool asynchronously via manager with automatic retry.
+        Execute the MCP tool asynchronously.
 
-        Args:
-            **kwargs: Tool arguments to pass to the MCP server
-
-        Returns:
-            str: Tool result from MCP server
+        tool_context supports:
+          - "user_session_id": reuse a cached MCP session for this id.
+            Omit (or pass None) to use a fresh session per call (parallel-safe).
+          - any other keys: currently ignored.
         """
         try:
-            # TODO: if you need any params from tool context, figure it out here
             meta = kwargs.pop("meta", {})
+            user_session_id = None
+            if tool_context:
+                user_session_id = tool_context.get("user_session_id")
+
             result = await self._manager.execute_tool(
-                tool_name=self.name, arguments=kwargs, meta=meta
+                tool_name=self.name,
+                arguments=kwargs,
+                meta=meta,
+                user_session_id=user_session_id,
             )
 
             structured_content = (
@@ -88,7 +93,6 @@ class MCPTool(BaseTool):
                 elicitation_details = ElicitationDetails(**structured_content)
                 return elicitation_details
 
-            # Parse result (MCP returns content as a list of content blocks)
             if hasattr(result, "content") and result.content:
                 texts = []
                 for block in result.content:
@@ -105,5 +109,8 @@ class MCPTool(BaseTool):
             logger.error("MCP tool '%s' execution failed: %s", self.name, e)
             return f"Tool execution failed: {str(e)}"
         except Exception as e:
-            logger.critical("Unexpected error executing MCP tool '%s': %s", self.name, e, exc_info=True)
+            logger.critical(
+                "Unexpected error executing MCP tool '%s': %s",
+                self.name, e, exc_info=True,
+            )
             return f"Unexpected error: {str(e)}"
