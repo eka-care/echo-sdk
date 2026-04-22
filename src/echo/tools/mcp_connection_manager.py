@@ -77,6 +77,7 @@ class MCPConnectionManager:
     _sessions: ClassVar[Dict[str, MCPConnection]] = {}
     _session_locks: ClassVar[Dict[str, asyncio.Lock]] = {}
     _tools_cache: ClassVar[Dict[str, List[MCPTool]]] = {}
+    _tool_discovery_locks: ClassVar[Dict[str, asyncio.Lock]] = {}
     _cleanup_task: ClassVar[Optional[asyncio.Task]] = None
 
     def __init__(self, config: MCPServerConfig):
@@ -95,29 +96,39 @@ class MCPConnectionManager:
         Discover tools. Uses the tool-schema cache keyed by
         (transport, url, tool_cache_key_headers). On miss, opens a
         throwaway session to list tools, closes it, caches the result.
+
+        Concurrent get_tools calls for the same cache key will serialize
+        through a per-key lock so only one throwaway session is opened.
         """
         if self._tool_cache_key not in self._tools_cache:
-            session, transport_ctx, http_client = await self._open_session()
-            try:
-                tools_response = await session.list_tools()
-            finally:
-                await self._close_parts(session, transport_ctx, http_client)
+            lock = self._tool_discovery_locks.get(self._tool_cache_key)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._tool_discovery_locks[self._tool_cache_key] = lock
+            async with lock:
+                # Re-check under the lock — another caller may have just filled it
+                if self._tool_cache_key not in self._tools_cache:
+                    session, transport_ctx, http_client = await self._open_session()
+                    try:
+                        tools_response = await session.list_tools()
+                    finally:
+                        await self._close_parts(session, transport_ctx, http_client)
 
-            all_tools = [
-                MCPTool(
-                    manager=self,
-                    server_id=self._tool_cache_key,
-                    tool_name=t.name,
-                    tool_description=t.description or "",
-                    input_schema=getattr(t, "inputSchema", None),
-                )
-                for t in tools_response.tools
-            ]
-            self._tools_cache[self._tool_cache_key] = all_tools
-            logger.info(
-                "Discovered and cached %d tools for %s",
-                len(all_tools), self._tool_cache_key,
-            )
+                    all_tools = [
+                        MCPTool(
+                            manager=self,
+                            server_id=self._tool_cache_key,
+                            tool_name=t.name,
+                            tool_description=t.description or "",
+                            input_schema=getattr(t, "inputSchema", None),
+                        )
+                        for t in tools_response.tools
+                    ]
+                    self._tools_cache[self._tool_cache_key] = all_tools
+                    logger.info(
+                        "Discovered and cached %d tools for %s",
+                        len(all_tools), self._tool_cache_key,
+                    )
 
         tools = self._tools_cache[self._tool_cache_key]
         return self._apply_filters(tools, filter_fn, tool_names)
@@ -164,10 +175,10 @@ class MCPConnectionManager:
         lock = self._get_session_lock(user_session_id)
         async with lock:
             conn = self._sessions.pop(user_session_id, None)
+            self._session_locks.pop(user_session_id, None)
             if conn is None:
                 return
-            await self._close_connection(conn)
-        self._session_locks.pop(user_session_id, None)
+            await self._close_connection_static(conn)
         logger.info("Forgot session: %s", user_session_id)
 
     @classmethod
@@ -190,6 +201,7 @@ class MCPConnectionManager:
         cls._sessions.clear()
         cls._session_locks.clear()
         cls._tools_cache.clear()
+        cls._tool_discovery_locks.clear()
         logger.info("Cleaned up all MCP manager state")
 
     # ---- Internal: fresh-session path ----
@@ -306,14 +318,18 @@ class MCPConnectionManager:
         """
         Open a fresh MCP ClientSession. Returns (session, transport_context, http_client).
         Caller is responsible for closing via _close_parts.
+
+        On partial failure (transport opened but session init failed), this
+        method cleans up the transport and http_client itself so no resource
+        leaks escape.
         """
+        transport_ctx: Any = None
+        http_client: Any = None
         try:
             if self._config.transport == MCPTransport.SSE:
                 transport_ctx = self._connect_sse()
-                http_client = None
             elif self._config.transport == MCPTransport.STDIO:
                 transport_ctx = self._connect_stdio()
-                http_client = None
             elif self._config.transport == MCPTransport.STREAMABLE_HTTP:
                 transport_ctx, http_client = self._connect_streamable_http()
             else:
@@ -328,14 +344,34 @@ class MCPConnectionManager:
                 read_stream, write_stream = transport_result
 
             session = ClientSession(read_stream, write_stream)
-            await session.__aenter__()
-            await session.initialize()
+            try:
+                await session.__aenter__()
+                await session.initialize()
+            except Exception:
+                # Session failed to initialize — tear down session, transport, http_client
+                await self._close_parts(session, transport_ctx, http_client)
+                raise
             return session, transport_ctx, http_client
+        except MCPConfigError:
+            raise
         except Exception as e:
+            # Transport opened (or partially opened) and then failed before session was built.
+            # Close the transport and http_client if we got them.
+            if transport_ctx is not None:
+                try:
+                    await transport_ctx.__aexit__(None, None, None)
+                except Exception as close_err:
+                    logger.debug("Transport close after failed open: %s", close_err)
+            if http_client is not None:
+                try:
+                    await http_client.aclose()
+                except Exception as close_err:
+                    logger.debug("httpx close after failed open: %s", close_err)
             raise MCPConnectionError(f"Failed to open MCP session: {e}") from e
 
+    @staticmethod
     async def _close_parts(
-        self, session: Optional[ClientSession], transport_ctx: Any, http_client: Any
+        session: Optional[ClientSession], transport_ctx: Any, http_client: Any
     ) -> None:
         """Close session, transport, and http_client in order, ignoring benign errors."""
         if session is not None:
@@ -362,33 +398,10 @@ class MCPConnectionManager:
             except Exception as e:
                 logger.debug("httpx close error: %s", e)
 
-    async def _close_connection(self, conn: MCPConnection) -> None:
-        await self._close_parts(conn.session, conn.transport_context, conn.http_client)
-
     @classmethod
     async def _close_connection_static(cls, conn: MCPConnection) -> None:
-        """Class-level variant for cleanup paths without a manager instance."""
-        if conn.session is not None:
-            try:
-                await conn.session.__aexit__(None, None, None)
-            except RuntimeError as e:
-                if "cancel scope" not in str(e):
-                    logger.debug("Session close error: %s", e)
-            except Exception as e:
-                logger.debug("Session close error: %s", e)
-        if conn.transport_context is not None:
-            try:
-                await conn.transport_context.__aexit__(None, None, None)
-            except RuntimeError as e:
-                if "cancel scope" not in str(e):
-                    logger.debug("Transport close error: %s", e)
-            except Exception as e:
-                logger.debug("Transport close error: %s", e)
-        if conn.http_client is not None:
-            try:
-                await conn.http_client.aclose()
-            except Exception as e:
-                logger.debug("httpx close error: %s", e)
+        """Close a cached MCPConnection without needing a manager instance."""
+        await cls._close_parts(conn.session, conn.transport_context, conn.http_client)
 
     # ---- Internal: transport construction ----
 
@@ -472,11 +485,14 @@ class MCPConnectionManager:
 
     def _ensure_cleanup_task(self) -> None:
         cls = type(self)
-        if cls._cleanup_task is None or cls._cleanup_task.done():
-            try:
-                cls._cleanup_task = asyncio.create_task(cls._cleanup_loop())
-            except RuntimeError:
-                logger.debug("No event loop available for cleanup task")
+        if cls._cleanup_task is not None and not cls._cleanup_task.done():
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            logger.debug("No event loop available for cleanup task")
+            return
+        cls._cleanup_task = asyncio.create_task(cls._cleanup_loop())
 
     @classmethod
     async def _cleanup_loop(cls) -> None:

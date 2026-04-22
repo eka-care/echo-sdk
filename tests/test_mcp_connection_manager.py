@@ -14,20 +14,23 @@ from echo.tools.schemas import MCPExecutionError, MCPServerConfig, MCPTransport
 @pytest.fixture(autouse=True)
 async def reset_manager_state():
     """Reset class-level state between tests to avoid cross-test pollution."""
-    MCPConnectionManager._sessions.clear()
-    MCPConnectionManager._session_locks.clear()
-    MCPConnectionManager._tools_cache.clear()
-    if MCPConnectionManager._cleanup_task and not MCPConnectionManager._cleanup_task.done():
-        MCPConnectionManager._cleanup_task.cancel()
-        try:
-            await MCPConnectionManager._cleanup_task
-        except asyncio.CancelledError:
-            pass
-    MCPConnectionManager._cleanup_task = None
+    async def _reset():
+        MCPConnectionManager._sessions.clear()
+        MCPConnectionManager._session_locks.clear()
+        MCPConnectionManager._tools_cache.clear()
+        MCPConnectionManager._tool_discovery_locks.clear()
+        task = MCPConnectionManager._cleanup_task
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        MCPConnectionManager._cleanup_task = None
+
+    await _reset()
     yield
-    MCPConnectionManager._sessions.clear()
-    MCPConnectionManager._session_locks.clear()
-    MCPConnectionManager._tools_cache.clear()
+    await _reset()
 
 
 def make_fake_session(tool_names: List[str] = None, call_result: Any = None):
