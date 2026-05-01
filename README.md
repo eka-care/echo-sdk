@@ -411,6 +411,86 @@ async def use_mcp_tools():
     result = await agent.run(context)
 ```
 
+## Skills
+
+A `Skill` is a lazy-loaded bundle of `(prompt fragment + tools + description)` that an agent can attach and detach mid-conversation. Use skills when one agent must handle multiple distinct flows (e.g., booking, cancellations, lead capture, content lookup) and you don't want every flow's instructions and tools loaded on every turn.
+
+### When you need them
+
+Skills earn their keep when at least one of these is true:
+
+- **Many capabilities, one agent.** Loading every flow's prompt + tools on every turn pollutes the system prompt and inflates token cost. Skills keep only the active flow in context.
+- **Mid-conversation handoff.** The agent's tool list is normally frozen at construction. Skills let you swap behavior without rebuilding the agent or losing conversation history.
+- **Code organization.** Six named `Skill` objects with their own tool lists are easier to maintain than six manually-merged `(prompt, tools)` tuples.
+
+If you have a single static flow, skip skills — just construct `GenericAgent(tools=[...])` as today.
+
+### Two activation modes
+
+```python
+from echo.agents import GenericAgent, Skill
+
+doctor_booking = Skill(
+    name="doctor_booking",
+    description="Use when the user wants to find or book a doctor.",
+    instructions="Walk the user through doctor discovery and booking...",
+    tools=[SearchDoctorsTool(), BookAppointmentTool()],
+)
+
+lab_booking = Skill(
+    name="lab_booking",
+    description="Use when the user wants a diagnostic / lab test.",
+    instructions="Help the user pick a lab package and confirm a slot...",
+    tools=[SearchLabPackagesTool()],
+)
+
+# LLM-driven (default): the agent auto-injects load_skill / unload_skill
+# meta-tools and an <available_skills> registry into the system prompt.
+# The model decides when to load and unload skills based on user intent.
+agent = GenericAgent(
+    agent_config=config,
+    skills=[doctor_booking, lab_booking],
+)
+
+# Manual: the host calls activate_skill / deactivate_skill explicitly.
+# No meta-tools, no registry block. Useful when you have an upstream
+# router (a classifier, rules engine, or separate LLM) that decides
+# activation, or when you want deterministic behavior for testing.
+agent = GenericAgent(
+    agent_config=config,
+    skills=[doctor_booking, lab_booking],
+    skill_activation="manual",
+)
+await agent.activate_skill("doctor_booking")
+```
+
+### Lifecycle hooks
+
+Subclass `Skill` to run logic when activation flips:
+
+```python
+class DoctorBookingSkill(Skill):
+    async def on_activate(self, context):
+        # e.g., fetch a tenant token, log telemetry
+        ...
+
+    async def on_deactivate(self, context):
+        ...
+```
+
+Hooks are called when activation happens via `await agent.activate_skill(...)`. When the LLM activates a skill via `load_skill`, hooks are still called but with `context=None` — if your hook needs the live conversation context, use manual mode.
+
+### Constraints
+
+- Tool names must be unique across base tools and all registered skills. Collisions are caught at agent construction with a clear error.
+- In LLM mode, `load_skill` and `unload_skill` are reserved tool names — a skill cannot declare a tool with either name.
+
+### Backward compatibility
+
+Existing agents that don't pass `skills=` are unaffected. The new kwargs default to `skills=None`, in which case all skill machinery is bypassed and behavior is byte-for-byte identical to a no-skills agent. `pip install -U` is safe.
+
+A runnable demonstration of both modes is at `examples/skill_agent_usage.py`.
+
 ## Conversation Context
 
 Manage multi-turn conversations:
