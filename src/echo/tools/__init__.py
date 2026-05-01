@@ -2,6 +2,7 @@
 
 from .base_elicitation import BaseElicitationTool
 from .base_tool import BaseTool
+from .databases import PgQueryTool
 from .mcp_connection_manager import MCPConnectionManager
 from .mcp_tool import MCPTool
 from .schemas import (
@@ -30,4 +31,5 @@ __all__ = [
     "ElicitationDetails",
     "ElicitationStatus",
     "ElicitationResponse",
+    "PgQueryTool",
 ]

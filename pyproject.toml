@@ -1,6 +1,6 @@
 [project]
 name = "echo"
-version = "0.1.31"
+version = "0.1.32"
 description = "Framework-agnostic medical Agent building SDK with multi-provider LLM and Tools support"
 readme = "README.md"
 license = "MIT"
@@ -39,6 +39,9 @@ gemini = ["google-genai>=1.0.0"]
 crewai = ["crewai>=1.6.1"]
 mcp = ["mcp>=1.8.0"]
 
+# Database Engines
+postgres = ["asyncpg>=0.29.0"]
+
 # Prompt Management
 langfuse = ["langfuse>=2.0.0"]
 
@@ -50,6 +53,7 @@ all = [
     "google-genai>=1.0.0",
     "mcp>=1.8.0",
     "langfuse>=2.0.0",
+    "asyncpg>=0.29.0",
 ]
 
 dev = [
