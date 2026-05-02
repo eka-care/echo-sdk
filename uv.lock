@@ -831,7 +831,7 @@ wheels = [
 
 [[package]]
 name = "echo"
-version = "0.1.33"
+version = "0.1.34"
 source = { editable = "." }
 dependencies = [
     { name = "orjson" },
@@ -845,6 +845,7 @@ all = [
     { name = "asyncpg" },
     { name = "boto3" },
     { name = "google-genai" },
+    { name = "httpx" },
     { name = "langfuse" },
     { name = "mcp" },
     { name = "openai" },
@@ -863,6 +864,9 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "python-dotenv" },
+]
+ekacare = [
+    { name = "httpx" },
 ]
 gemini = [
     { name = "google-genai" },
@@ -891,6 +895,8 @@ requires-dist = [
     { name = "crewai", marker = "extra == 'crewai'", specifier = ">=1.6.1" },
     { name = "google-genai", marker = "extra == 'all'", specifier = ">=1.0.0" },
     { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=1.0.0" },
+    { name = "httpx", marker = "extra == 'all'", specifier = ">=0.27.0" },
+    { name = "httpx", marker = "extra == 'ekacare'", specifier = ">=0.27.0" },
     { name = "langfuse", marker = "extra == 'all'", specifier = ">=2.0.0" },
     { name = "langfuse", marker = "extra == 'langfuse'", specifier = ">=2.0.0" },
     { name = "mcp", marker = "extra == 'all'", specifier = ">=1.8.0" },
@@ -905,7 +911,7 @@ requires-dist = [
     { name = "python-dotenv", marker = "extra == 'dev'", specifier = ">=1.2.1" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
-provides-extras = ["bedrock", "openai", "anthropic", "gemini", "crewai", "mcp", "postgres", "langfuse", "all", "dev"]
+provides-extras = ["bedrock", "openai", "anthropic", "gemini", "ekacare", "crewai", "mcp", "postgres", "langfuse", "all", "dev"]
 
 [[package]]
 name = "et-xmlfile"
