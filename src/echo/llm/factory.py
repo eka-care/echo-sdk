@@ -82,8 +82,8 @@ def get_llm(config: LLMConfig) -> BaseLLM:
             return GeminiLLM(config)
         except ImportError:
             raise ImportError(
-                "google-generativeai is required for Gemini. "
-                "Install with: pip install google-generativeai"
+                "google-genai is required for Gemini. "
+                "Install with: pip install google-genai"
             )
 
     else:
