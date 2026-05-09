@@ -152,6 +152,39 @@ def test_translate_tool_call_start_with_missing_details_degrades_gracefully():
 # ----- args streaming -----
 
 
+def test_translate_tool_call_args_via_dispatcher():
+    """PR-S5: dispatcher.translate handles TOOL_CALL_ARGS StreamEvents."""
+    d = AgUiToolDispatcher()
+    d.translate(
+        StreamEvent(
+            type=StreamEventType.TOOL_CALL_START,
+            details={"tool_id": "tc1", "tool_name": "emit_section"},
+        )
+    )
+    out = d.translate(
+        StreamEvent(
+            type=StreamEventType.TOOL_CALL_ARGS,
+            details={"tool_id": "tc1", "delta": '{"key":"meds"'},
+        )
+    )
+    assert len(out) == 1
+    assert isinstance(out[0], ToolCallArgsEvent)
+    assert out[0].tool_call_id == "tc1"
+    assert out[0].delta == '{"key":"meds"'
+    assert out[0].type == EventType.TOOL_CALL_ARGS
+
+
+def test_translate_tool_call_args_unknown_id_returns_empty():
+    d = AgUiToolDispatcher()
+    out = d.translate(
+        StreamEvent(
+            type=StreamEventType.TOOL_CALL_ARGS,
+            details={"tool_id": "never-seen", "delta": '{"x":1}'},
+        )
+    )
+    assert out == []
+
+
 def test_append_args_delta_emits_tool_call_args():
     d = AgUiToolDispatcher()
     d.translate(
@@ -355,6 +388,50 @@ async def test_runner_with_dispatcher_emits_tool_call_events():
     ]
     # Classification was tracked.
     assert dispatcher.call_classification("tc1") == "backend"
+
+
+@pytest.mark.asyncio
+async def test_runner_streams_tool_call_args_end_to_end():
+    """PR-S5: provider-emitted TOOL_CALL_ARGS StreamEvents flow through
+    the runner as AG-UI ToolCallArgsEvents with the same delta string."""
+    state = _DemoState()
+    agent = FakeAgent(
+        events=[
+            StreamEvent(
+                type=StreamEventType.TOOL_CALL_START,
+                details={"tool_id": "tc1", "tool_name": "emit_section"},
+            ),
+            StreamEvent(
+                type=StreamEventType.TOOL_CALL_ARGS,
+                details={"tool_id": "tc1", "delta": '{"key":"med'},
+            ),
+            StreamEvent(
+                type=StreamEventType.TOOL_CALL_ARGS,
+                details={"tool_id": "tc1", "delta": 's","order":0}'},
+            ),
+            StreamEvent(
+                type=StreamEventType.TOOL_CALL_END,
+                details={"tool_id": "tc1", "tool_name": "emit_section"},
+            ),
+            StreamEvent(type=StreamEventType.DONE),
+        ]
+    )
+    runner = AgUiRunner(agent, state, "t1", "r1")
+
+    events = await _collect(runner)
+    types = [type(e).__name__ for e in events]
+    assert types == [
+        "RunStartedEvent",
+        "StateSnapshotEvent",
+        "ToolCallStartEvent",
+        "ToolCallArgsEvent",
+        "ToolCallArgsEvent",
+        "ToolCallEndEvent",
+        "RunFinishedEvent",
+    ]
+    args_evs = [e for e in events if isinstance(e, ToolCallArgsEvent)]
+    assert [e.delta for e in args_evs] == ['{"key":"med', 's","order":0}']
+    assert all(e.tool_call_id == "tc1" for e in args_evs)
 
 
 @pytest.mark.asyncio
