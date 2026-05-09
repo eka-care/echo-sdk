@@ -1,16 +1,19 @@
 """
 AgUiRunner: translates an echo agent.run_stream() into AG-UI events.
 
-PR-S2 scope: text-only path. The runner emits:
+The runner emits:
 
     RUN_STARTED
     STATE_SNAPSHOT(snapshot)
-    [ TEXT_MESSAGE_CHUNK ... STATE_DELTA(ops) ... ]*
+    [ TEXT_MESSAGE_CHUNK | TOOL_CALL_START | TOOL_CALL_ARGS | TOOL_CALL_END
+      | STATE_DELTA(ops) ]*
     RUN_FINISHED                    (or RUN_ERROR on failure)
 
-Tool dispatch (TOOL_CALL_*) and pause/resume (paused-run store) land in
-PR-S3 and PR-S4. In PR-S2 the runner silently ignores TOOL_CALL_START /
-TOOL_CALL_END events from the LLM stream — they will be wired up in PR-S3.
+Tool dispatch is delegated to AgUiToolDispatcher (PR-S3): it classifies
+each call as backend (server-executed by echo-sdk) or UI (FE-declared,
+emitted as TOOL_CALL_* and resolved via /resume). Pause/resume wiring
+into a PausedRunStore lands in PR-S4. PR-S5 enables streaming
+TOOL_CALL_ARGS deltas from the Anthropic provider.
 
 Caller responsibilities:
 
@@ -18,14 +21,17 @@ Caller responsibilities:
        initial STATE_SNAPSHOT is taken from state.snapshot().
     2. Provide a fresh thread_id / run_id pair (typically from the FE's
        RunAgentInput).
-    3. Consume the async generator until exhaustion. The runner guarantees
+    3. (Optional) Pass an AgUiToolDispatcher pre-loaded with the
+       FE-declared UI tool names. If omitted, all tool calls are treated
+       as backend (no pause).
+    4. Consume the async generator until exhaustion. The runner guarantees
        exactly one terminal event (RUN_FINISHED or RUN_ERROR) under
        normal control flow.
 """
 
 import logging
 import uuid
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING, AsyncGenerator, Optional
 
 from ag_ui.core import (
     BaseEvent,
@@ -41,6 +47,7 @@ from ag_ui.core import (
 from echo.llm.schemas import StreamEvent, StreamEventType
 
 from .state import AgUiState
+from .tool_dispatcher import AgUiToolDispatcher
 
 if TYPE_CHECKING:
     from echo.agents.base import BaseAgent
@@ -61,11 +68,13 @@ class AgUiRunner:
         state: AgUiState,
         thread_id: str,
         run_id: str,
+        tool_dispatcher: Optional[AgUiToolDispatcher] = None,
     ) -> None:
         self.agent = agent
         self.state = state
         self.thread_id = thread_id
         self.run_id = run_id
+        self.tool_dispatcher = tool_dispatcher or AgUiToolDispatcher()
         # Stable message_id so all TEXT chunks group into one assistant turn.
         self._assistant_message_id = str(uuid.uuid4())
 
@@ -133,8 +142,7 @@ class AgUiRunner:
     def _translate(self, sev: StreamEvent) -> list[BaseEvent]:
         """Map one StreamEvent to zero-or-more AG-UI events.
 
-        PR-S2 handles TEXT and ERROR. TOOL_CALL_START / TOOL_CALL_END are
-        silently ignored here — PR-S3 introduces the tool dispatcher.
+        Delegates TOOL_CALL_START / TOOL_CALL_END to the tool dispatcher.
         DONE is consumed by the outer loop and emits no event.
         """
         if sev.type == StreamEventType.TEXT:
@@ -154,4 +162,6 @@ class AgUiRunner:
                     code="agent_stream_error",
                 )
             ]
+        if sev.type in (StreamEventType.TOOL_CALL_START, StreamEventType.TOOL_CALL_END):
+            return self.tool_dispatcher.translate(sev)
         return []

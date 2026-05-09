@@ -278,11 +278,15 @@ async def test_exception_in_agent_stream_emits_run_error():
     assert "kaboom" in err.message
 
 
-# ----- TOOL_CALL events ignored in PR-S2 -----
+# ----- TOOL_CALL events translated via default (backend-only) dispatcher -----
+# (PR-S3 wired in the dispatcher; covered in depth by test_ag_ui_tool_dispatcher.py.)
 
 
 @pytest.mark.asyncio
-async def test_tool_call_events_ignored_in_pr_s2():
+async def test_tool_call_events_translated_with_default_dispatcher():
+    """Without a dispatcher passed, the runner instantiates a default
+    one. Default has no UI tools, so all tool calls classify as backend
+    and translate cleanly to AG-UI ToolCall* events."""
     state = _DemoState()
     agent = FakeAgent(
         events=[
@@ -301,13 +305,13 @@ async def test_tool_call_events_ignored_in_pr_s2():
     runner = AgUiRunner(agent, state, "t1", "r1")
 
     events = await _collect(runner)
-    # TOOL_CALL_* events from the LLM stream produce no AG-UI events here.
     type_names = [type(e).__name__ for e in events]
-    assert "ToolCallStartEvent" not in type_names
-    assert "ToolCallEndEvent" not in type_names
-    # But the trailing TEXT and lifecycle still flow.
+    assert "ToolCallStartEvent" in type_names
+    assert "ToolCallEndEvent" in type_names
     assert "TextMessageChunkEvent" in type_names
     assert "RunFinishedEvent" in type_names
+    # Default dispatcher classifies as backend.
+    assert runner.tool_dispatcher.call_classification("tc1") == "backend"
 
 
 # ----- forwarded args -----
