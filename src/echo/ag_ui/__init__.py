@@ -17,7 +17,14 @@ Public surface (filled in across PR-S1..PR-S4):
 See echo.agents.base.BaseAgent.run_stream_with_ag_ui() for the entry point.
 """
 
+from .persistence import (
+    InMemoryPausedRunStore,
+    PausedRun,
+    PausedRunStore,
+    make_pause_key,
+)
 from .runner import AgUiRunner
+from .schemas import AgUiResumeInput
 from .state import AgUiState
 from .tool_dispatcher import AgUiToolDispatcher, PauseSignal
 
@@ -26,4 +33,9 @@ __all__ = [
     "AgUiRunner",
     "AgUiToolDispatcher",
     "PauseSignal",
+    "PausedRun",
+    "PausedRunStore",
+    "InMemoryPausedRunStore",
+    "make_pause_key",
+    "AgUiResumeInput",
 ]

@@ -29,6 +29,7 @@ class StreamEventType(str, Enum):
 
     TEXT = "text"  # Partial text chunk
     TOOL_CALL_START = "tool_start"  # Tool invocation detected
+    TOOL_CALL_ARGS = "tool_args"  # Tool args fragment (streaming)
     TOOL_CALL_END = "tool_end"  # Tool execution finished
     DONE = "eos"  # Stream complete
     ERROR = "error"  # Error occurred

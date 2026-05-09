@@ -124,6 +124,13 @@ class AgUiToolDispatcher:
                 )
             ]
 
+        if sev.type == StreamEventType.TOOL_CALL_ARGS:
+            details = sev.details or {}
+            tool_id = str(details.get("tool_id", ""))
+            delta = str(details.get("delta", ""))
+            args_ev = self.append_args_delta(tool_id, delta)
+            return [args_ev] if args_ev is not None else []
+
         if sev.type == StreamEventType.TOOL_CALL_END:
             details = sev.details or {}
             tool_id = str(details.get("tool_id", ""))
@@ -170,6 +177,28 @@ class AgUiToolDispatcher:
         state = self._calls.get(tool_call_id)
         if state is not None:
             state.args_parsed = dict(args)
+
+    def register_completed_call(
+        self,
+        tool_call_id: str,
+        tool_call_name: str,
+        is_ui_tool: bool,
+        args: dict,
+    ) -> None:
+        """Register a tool call after-the-fact, with full args known.
+
+        Used by the runner when synthesizing AG-UI events from
+        ElicitationResponses (echo-sdk's elicitation flow doesn't fire
+        TOOL_CALL_START/END through StreamEvent, so the dispatcher
+        otherwise wouldn't know about the call).
+        """
+        self._calls[tool_call_id] = _ToolCallState(
+            tool_call_id=tool_call_id,
+            tool_call_name=tool_call_name,
+            is_ui_tool=is_ui_tool,
+            args_parsed=dict(args),
+            ended=True,
+        )
 
     # --- pause signal ---
 
