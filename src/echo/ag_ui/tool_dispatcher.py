@@ -37,7 +37,7 @@ from echo.llm.schemas import StreamEvent, StreamEventType
 class PauseSignal:
     """Surfaces a UI tool call that the runner should pause on.
 
-    Consumed by the run-stream entry point (PR-S4): on receipt, the host
+    Consumed by the run-stream entry point: on receipt, the host
     persists (ConversationContext, AgUiState, run_id, tool_call_id) to
     a PausedRunStore and exits the SSE generator. A subsequent /resume
     request rehydrates and continues.
@@ -77,8 +77,6 @@ class AgUiToolDispatcher:
         self._ui_tool_names: set[str] = set(ui_tool_names or [])
         self._calls: dict[str, _ToolCallState] = {}
 
-    # --- registration / classification ---
-
     def register_ui_tools(self, tool_names: List[str]) -> None:
         """Mark these tool names as FE-declared UI tools.
 
@@ -97,8 +95,6 @@ class AgUiToolDispatcher:
             return None
         return "ui" if state.is_ui_tool else "backend"
 
-    # --- StreamEvent translation ---
-
     def translate(self, sev: StreamEvent) -> List[BaseEvent]:
         """Translate a tool-related StreamEvent to AG-UI events.
 
@@ -110,7 +106,7 @@ class AgUiToolDispatcher:
             details = sev.details or {}
             tool_id = str(details.get("tool_id", ""))
             tool_name = str(details.get("tool_name", ""))
-            # Track the call regardless of how it ends.
+            # track the call regardless of how it ends.
             self._calls[tool_id] = _ToolCallState(
                 tool_call_id=tool_id,
                 tool_call_name=tool_name,
@@ -145,8 +141,6 @@ class AgUiToolDispatcher:
             ]
 
         return []
-
-    # --- args streaming (PR-S5 will call append_args_delta) ---
 
     def append_args_delta(
         self, tool_call_id: str, delta: str
@@ -200,8 +194,6 @@ class AgUiToolDispatcher:
             ended=True,
         )
 
-    # --- pause signal ---
-
     def pending_ui_calls(self) -> List[_ToolCallState]:
         """All recorded UI tool calls (for diagnostics / multi-call cases)."""
         return [s for s in self._calls.values() if s.is_ui_tool]
@@ -222,8 +214,6 @@ class AgUiToolDispatcher:
                     tool_args=dict(state.args_parsed),
                 )
         return None
-
-    # --- backend result emission ---
 
     def emit_backend_result_ack(
         self, tool_call_id: str, message_id: str, content: str = "(server-executed)"

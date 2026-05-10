@@ -9,11 +9,11 @@ The runner emits:
       | STATE_DELTA(ops) ]*
     RUN_FINISHED                    (or RUN_ERROR on failure)
 
-Tool dispatch is delegated to AgUiToolDispatcher (PR-S3): it classifies
+Tool dispatch is delegated to AgUiToolDispatcher: it classifies
 each call as backend (server-executed by echo-sdk) or UI (FE-declared,
 emitted as TOOL_CALL_* and resolved via /resume). Pause/resume wiring
-into a PausedRunStore lands in PR-S4. PR-S5 enables streaming
-TOOL_CALL_ARGS deltas from the Anthropic provider.
+into a PausedRunStore enables streaming
+TOOL_CALL_ARGS deltas from the Anthropic/Open-ai or any LLM provider.
 
 Caller responsibilities:
 
@@ -85,7 +85,7 @@ class AgUiRunner:
         self.tool_dispatcher = tool_dispatcher or AgUiToolDispatcher()
         self.paused_run_store = paused_run_store
         self.pause_metadata = pause_metadata or {}
-        # Stable message_id so all TEXT chunks group into one assistant turn.
+        # stable message_id so all TEXT chunks group into one assistant turn.
         self._assistant_message_id = str(uuid.uuid4())
 
     async def stream(
@@ -124,7 +124,7 @@ class AgUiRunner:
                     errored = True
                     break
 
-                # Flush any state ops accumulated during this LLM event.
+                # flush any state ops accumulated during this LLM event.
                 ops = self.state.drain_pending_ops()
                 if ops:
                     yield StateDeltaEvent(type=EventType.STATE_DELTA, delta=ops)
@@ -144,7 +144,7 @@ class AgUiRunner:
                             for ag_ev in self._synthesize_ui_tool_events(elicit):
                                 yield ag_ev
 
-                        # Final state flush before pause.
+                        # final state flush before pause.
                         tail = self.state.drain_pending_ops()
                         if tail:
                             yield StateDeltaEvent(
@@ -157,7 +157,7 @@ class AgUiRunner:
                         paused = True
                     break
 
-            # Tail flush — in case the last event mutated state.
+            # fail flush — in case the last event mutated state.
             if not paused:
                 tail_ops = self.state.drain_pending_ops()
                 if tail_ops:
@@ -171,7 +171,7 @@ class AgUiRunner:
                     thread_id=self.thread_id,
                     run_id=self.run_id,
                 )
-                # Clean completion: clear any prior paused-run entry
+                # clean completion: clear any prior paused-run entry
                 # for this (thread_id, run_id) pair.
                 if self.paused_run_store is not None:
                     await self.paused_run_store.delete(
@@ -187,7 +187,6 @@ class AgUiRunner:
             )
 
     # --- pause helpers ---
-
     def _synthesize_ui_tool_events(
         self, elicitation: "ElicitationResponse"
     ) -> list[BaseEvent]:
@@ -233,7 +232,7 @@ class AgUiRunner:
         try:
             ctx_snap = context.model_dump(mode="json")
         except Exception:
-            # Defensive: callers may pass non-Pydantic stand-ins (tests).
+            # defensive: callers may pass non-Pydantic stand-ins (tests).
             ctx_snap = {}
 
         snapshot = PausedRun(
@@ -249,8 +248,7 @@ class AgUiRunner:
         key = make_pause_key(self.thread_id, self.run_id)
         await self.paused_run_store.save(key, snapshot)
 
-    # --- StreamEvent → AG-UI event translation ---
-
+    # ag-ui event translation helpers --- these are for AG-UI events that don't have a 1:1 mapping
     def _translate(self, sev: StreamEvent) -> list[BaseEvent]:
         """Map one StreamEvent to zero-or-more AG-UI events.
 
