@@ -385,7 +385,6 @@ class BaseAgent(ABC):
             yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
 
     # --- AG-UI public API ---
-
     async def run_stream_with_ag_ui(
         self,
         context: "ConversationContext",
@@ -509,7 +508,7 @@ class BaseAgent(ABC):
             )
             return
 
-        # Tell the FE we received the result.
+        # tell the FE we received the result.
         if isinstance(tool_result, str):
             result_str = tool_result
         else:
@@ -523,7 +522,7 @@ class BaseAgent(ABC):
             role="tool",
         )
 
-        # Inject the tool result into the conversation context.
+        # inject the tool result into the conversation context.
         context.add_message(
             Message(
                 role=MessageRole.TOOL,
@@ -532,7 +531,7 @@ class BaseAgent(ABC):
             )
         )
 
-        # Build a fresh RunAgentInput re-declaring the UI tools so the
+        # build a fresh RunAgentInput re-declaring the UI tools so the
         # next agent turn can pause again on a different UI tool if
         # needed.
         fresh_tools = [

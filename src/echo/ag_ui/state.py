@@ -1,8 +1,8 @@
 """
 Base state container for AG-UI integrations.
 
-Subclasses are regular Pydantic models holding domain state (e.g.
-ScribeState in voice2rx). The host (typically AgUiRunner) calls
+Subclasses are regular Pydantic models holding domain state.
+The host (typically AgUiRunner) calls
 begin_tracking() once after the initial STATE_SNAPSHOT is emitted, and
 drain_pending_ops() between LLM events to compute STATE_DELTA frames.
 """
@@ -45,7 +45,7 @@ class AgUiState(BaseModel):
     Both styles can be mixed in one run; drain returns the combined diff.
     """
 
-    # Baseline snapshot used to compute deltas. None until begin_tracking()
+    # baseline snapshot used to compute deltas. None until begin_tracking()
     # is called.
     _baseline: dict | None = PrivateAttr(default=None)
 
