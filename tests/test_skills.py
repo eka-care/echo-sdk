@@ -4,11 +4,13 @@ Covers:
 - Skill class shape and validation.
 - Programmatic activate / deactivate (manual mode).
 - Per-turn composition: prompt + tools include active-skill content.
-- No-skills agents are byte-for-byte equivalent to the pre-skills behavior.
-- Tool-name collision validator at construction.
+- No-skills agents are equivalent to the pre-skills behavior.
+- Tool registry uniqueness and skill tool_names resolution at construction.
 - LLM-mode auto-injection: load_skill / unload_skill meta-tools and the
   <available_skills> registry block.
 - LoadSkillTool / UnloadSkillTool execution (success + structured errors).
+- Name-set dedup when active skills share a tool.
+- The `base_tool_names` knob for skill-only tool visibility.
 """
 
 from typing import Any, Dict, List
@@ -77,18 +79,22 @@ def test_skill_construction_minimal():
         instructions="Walk the user through booking.",
     )
     assert s.name == "doctor_booking"
-    assert s.tools == []
+    assert s.tool_names == []
 
 
-def test_skill_construction_with_tools():
-    t = _StubTool("search_doctors")
+def test_skill_construction_with_tool_names():
     s = Skill(
         name="doctor_booking",
         description="d",
         instructions="i",
-        tools=[t],
+        tool_names=["search_doctors"],
     )
-    assert s.tools == [t]
+    assert s.tool_names == ["search_doctors"]
+
+
+def test_skill_rejects_non_string_tool_names():
+    with pytest.raises(ValueError, match="Skill.tool_names"):
+        Skill(name="n", description="d", instructions="i", tool_names=[""])
 
 
 @pytest.mark.parametrize(
@@ -108,16 +114,15 @@ def test_skill_required_fields_reject_empty(field):
 
 def test_no_skills_agent_is_unchanged(patched_get_llm):
     """An agent with no skills= passed must behave like the pre-skills version."""
-    agent = _new_agent()
+    base = _StubTool("base_tool")
+    agent = _new_agent(tools=[base])
 
     # Skill machinery is initialized but inert.
     assert agent.skills == {}
     assert agent.active_skill_names() == []
 
-    # _build_active_tools returns the exact base tools list (same object).
-    base_tools: List[BaseTool] = [_StubTool("base_tool")]
-    agent.tools = base_tools
-    assert agent._build_active_tools() is base_tools
+    # _build_active_tools returns the same tools as input.
+    assert agent._build_active_tools() == [base]
 
     # System prompt does not contain any skill-related content.
     prompt = agent._build_system_prompt()
@@ -247,17 +252,20 @@ async def test_inactive_skill_not_in_system_prompt(patched_get_llm):
 
 
 async def test_active_skill_tools_appended_to_tool_list(patched_get_llm):
-    """Manual mode: tool list is exactly base tools + active skill tools."""
+    """Manual mode: tool list is base tools + the active skill's named tools."""
     base = _StubTool("base_tool")
     skill_tool = _StubTool("search_doctors")
     skill = Skill(
         name="doctor_booking",
         description="d",
         instructions="i",
-        tools=[skill_tool],
+        tool_names=["search_doctors"],
     )
     agent = _new_agent(
-        tools=[base], skills=[skill], skill_activation="manual"
+        tools=[base, skill_tool],
+        skills=[skill],
+        skill_activation="manual",
+        base_tool_names=["base_tool"],
     )
     await agent.activate_skill("doctor_booking")
 
@@ -269,9 +277,17 @@ async def test_inactive_skill_tools_not_in_tool_list(patched_get_llm):
     """Manual mode: a registered-but-inactive skill contributes no tools."""
     base = _StubTool("base_tool")
     skill_tool = _StubTool("search_doctors")
-    skill = Skill(name="doc", description="d", instructions="i", tools=[skill_tool])
+    skill = Skill(
+        name="doc",
+        description="d",
+        instructions="i",
+        tool_names=["search_doctors"],
+    )
     agent = _new_agent(
-        tools=[base], skills=[skill], skill_activation="manual"
+        tools=[base, skill_tool],
+        skills=[skill],
+        skill_activation="manual",
+        base_tool_names=["base_tool"],
     )
 
     tools = agent._build_active_tools()
@@ -291,9 +307,13 @@ async def test_manual_mode_does_not_inject_available_skills_block(patched_get_ll
 
 async def test_hot_swap_mid_conversation(patched_get_llm):
     """Deactivate A + activate B between turns; second composition reflects B only."""
-    a = Skill(name="a", description="d", instructions="A_TEXT", tools=[_StubTool("a_tool")])
-    b = Skill(name="b", description="d", instructions="B_TEXT", tools=[_StubTool("b_tool")])
-    agent = _new_agent(skills=[a, b])
+    a_tool = _StubTool("a_tool")
+    b_tool = _StubTool("b_tool")
+    a = Skill(name="a", description="d", instructions="A_TEXT", tool_names=["a_tool"])
+    b = Skill(name="b", description="d", instructions="B_TEXT", tool_names=["b_tool"])
+    agent = _new_agent(
+        tools=[a_tool, b_tool], skills=[a, b], base_tool_names=[]
+    )
 
     await agent.activate_skill("a")
     prompt_1 = agent._build_system_prompt()
@@ -312,28 +332,140 @@ async def test_hot_swap_mid_conversation(patched_get_llm):
     assert not any(t.name == "a_tool" for t in tools_2)
 
 
-# --- Tool-name collision validator ---
+# --- Tool registry and skill validation ---
 
 
-def test_collision_two_skills_with_same_name(patched_get_llm):
+def test_duplicate_skill_name_silently_dropped(patched_get_llm, caplog):
     s1 = Skill(name="doc", description="d", instructions="i")
-    s2 = Skill(name="doc", description="d", instructions="i")
-    with pytest.raises(ValueError, match="Duplicate Skill.name"):
-        _new_agent(skills=[s1, s2])
+    s2 = Skill(name="doc", description="d", instructions="i2")
+    with caplog.at_level("WARNING"):
+        agent = _new_agent(skills=[s1, s2])
+    assert list(agent.skills) == ["doc"]
+    assert agent.skills["doc"] is s1
+    assert any("Duplicate skill dropped" in r.message for r in caplog.records)
 
 
-def test_collision_two_skills_with_same_tool_name(patched_get_llm):
-    s1 = Skill(name="a", description="d", instructions="i", tools=[_StubTool("shared")])
-    s2 = Skill(name="b", description="d", instructions="i", tools=[_StubTool("shared")])
-    with pytest.raises(ValueError, match="Tool name collision.*shared"):
-        _new_agent(skills=[s1, s2])
+def test_duplicate_tool_name_silently_dropped(patched_get_llm, caplog):
+    """Second BaseTool with a colliding name is dropped; first wins."""
+    a = _StubTool("shared")
+    b = _StubTool("shared")
+    with caplog.at_level("WARNING"):
+        agent = _new_agent(tools=[a, b])
+    assert agent.tools == [a]
+    assert agent._tools_by_name["shared"] is a
+    assert any("Duplicate tool dropped" in r.message for r in caplog.records)
 
 
-def test_collision_skill_tool_with_base_tool(patched_get_llm):
-    base = _StubTool("shared")
-    skill = Skill(name="a", description="d", instructions="i", tools=[_StubTool("shared")])
-    with pytest.raises(ValueError, match="Tool name collision.*shared"):
-        _new_agent(tools=[base], skills=[skill])
+def test_skill_referencing_unknown_tool_name_silently_dropped(patched_get_llm, caplog):
+    """Skill whose tool_names don't all resolve is removed from the registry."""
+    skill = Skill(
+        name="ghost",
+        description="d",
+        instructions="i",
+        tool_names=["does_not_exist"],
+    )
+    with caplog.at_level("WARNING"):
+        agent = _new_agent(skills=[skill])
+    assert "ghost" not in agent.skills
+    assert any("missing tools" in r.message for r in caplog.records)
+
+
+def test_base_tool_named_load_skill_is_dropped(patched_get_llm, caplog):
+    """A base tool whose name shadows a reserved meta name is dropped silently."""
+    skill = Skill(name="s", description="d", instructions="i")
+    with caplog.at_level("WARNING"):
+        agent = _new_agent(
+            tools=[_StubTool("load_skill")],
+            skills=[skill],
+            skill_activation="llm",
+        )
+    # The reserved-name base tool was dropped; the real meta tool occupies that name.
+    assert agent._tools_by_name["load_skill"].__class__.__name__ == "LoadSkillTool"
+    assert any("Duplicate tool dropped" in r.message for r in caplog.records)
+
+
+def test_invalid_base_tool_name_silently_ignored(patched_get_llm, caplog):
+    """Entries in base_tool_names that don't exist (or are reserved) are dropped."""
+    with caplog.at_level("WARNING"):
+        agent = _new_agent(tools=[_StubTool("yes")], base_tool_names=["nope"])
+    assert agent._base_tool_names == []
+    assert any("invalid" in r.message for r in caplog.records)
+
+
+# --- Name-set dedup ---
+
+
+async def test_shared_tool_listed_once_when_two_skills_active(patched_get_llm):
+    """A tool referenced by two active skills appears exactly once in the schema."""
+    shared = _StubTool("shared")
+    only_a = _StubTool("only_a")
+    a = Skill(
+        name="a", description="d", instructions="i", tool_names=["shared", "only_a"]
+    )
+    b = Skill(name="b", description="d", instructions="i", tool_names=["shared"])
+    agent = _new_agent(
+        tools=[shared, only_a],
+        skills=[a, b],
+        skill_activation="manual",
+        base_tool_names=[],
+    )
+    await agent.activate_skill("a")
+    await agent.activate_skill("b")
+
+    names = [t.name for t in agent._build_active_tools()]
+    assert names.count("shared") == 1
+    assert names.count("only_a") == 1
+
+
+async def test_shared_tool_stays_visible_when_one_of_two_owners_unloads(patched_get_llm):
+    """Unloading one skill that names a tool does NOT remove it if another active skill still names it."""
+    shared = _StubTool("shared")
+    a = Skill(name="a", description="d", instructions="i", tool_names=["shared"])
+    b = Skill(name="b", description="d", instructions="i", tool_names=["shared"])
+    agent = _new_agent(
+        tools=[shared],
+        skills=[a, b],
+        skill_activation="manual",
+        base_tool_names=[],
+    )
+    await agent.activate_skill("a")
+    await agent.activate_skill("b")
+
+    await agent.deactivate_skill("a")
+    names = [t.name for t in agent._build_active_tools()]
+    assert "shared" in names
+
+
+# --- base_tool_names knob ---
+
+
+async def test_base_tool_names_partitions_default_vs_skill_only(patched_get_llm):
+    """Tool not in base_tool_names is invisible until a skill names it."""
+    default = _StubTool("default")
+    skill_only = _StubTool("skill_only")
+    s = Skill(
+        name="s",
+        description="d",
+        instructions="i",
+        tool_names=["skill_only"],
+    )
+    agent = _new_agent(
+        tools=[default, skill_only],
+        skills=[s],
+        skill_activation="manual",
+        base_tool_names=["default"],
+    )
+
+    # Before activation: only `default` is visible.
+    before = [t.name for t in agent._build_active_tools()]
+    assert "default" in before
+    assert "skill_only" not in before
+
+    # After activation: skill_only joins the visible set.
+    await agent.activate_skill("s")
+    after = [t.name for t in agent._build_active_tools()]
+    assert "default" in after
+    assert "skill_only" in after
 
 
 # --- LLM-driven activation surface ---
@@ -348,21 +480,25 @@ def test_llm_mode_is_the_default_when_skills_are_passed(patched_get_llm):
 
 def test_llm_mode_without_skills_is_a_no_op(patched_get_llm):
     """LLM mode with no skills registered must not break or inject anything."""
-    agent = _new_agent(skills=None, skill_activation="llm")
+    base = _StubTool("base_tool")
+    agent = _new_agent(tools=[base], skills=None, skill_activation="llm")
     # No meta-tools, no registry block, base tool list unchanged.
-    assert agent._build_active_tools() is agent.tools
+    assert agent._build_active_tools() == [base]
     assert "<available_skills>" not in agent._build_system_prompt()
 
 
 def test_llm_mode_injects_meta_tools_into_tool_list(patched_get_llm):
     """LLM mode adds load_skill + unload_skill to every per-turn tool list."""
+    skill_tool = _StubTool("search_doctors")
     skill = Skill(
         name="doc",
         description="d",
         instructions="i",
-        tools=[_StubTool("search_doctors")],
+        tool_names=["search_doctors"],
     )
-    agent = _new_agent(skills=[skill], skill_activation="llm")
+    agent = _new_agent(
+        tools=[skill_tool], skills=[skill], skill_activation="llm"
+    )
 
     # Even with no skills active, the meta-tools are present so the LLM
     # can call load_skill on the first turn.
@@ -384,37 +520,17 @@ def test_llm_mode_injects_available_skills_block_in_prompt(patched_get_llm):
     assert "</available_skills>" in prompt
 
 
-def test_collision_skill_tool_named_load_skill_in_llm_mode(patched_get_llm):
-    """A skill cannot declare a tool whose name shadows the load_skill meta-tool."""
-    bad = Skill(
-        name="bad",
-        description="d",
-        instructions="i",
-        tools=[_StubTool("load_skill")],
-    )
-    with pytest.raises(ValueError, match="load_skill.*reserved"):
-        _new_agent(skills=[bad], skill_activation="llm")
-
-
-def test_reserved_meta_tool_collision_only_checked_in_llm_mode(patched_get_llm):
-    """Manual mode permits skill tools named load_skill — meta-tools aren't injected."""
-    odd = Skill(
-        name="odd",
-        description="d",
-        instructions="i",
-        tools=[_StubTool("load_skill")],
-    )
-    # Should not raise.
-    _new_agent(skills=[odd], skill_activation="manual")
-
-
 # --- LoadSkillTool / UnloadSkillTool execution ---
+
+
+def _meta_tool(agent: GenericAgent, name: str) -> BaseTool:
+    return agent._tools_by_name[name]
 
 
 async def test_load_skill_tool_activates_named_skill(patched_get_llm):
     skill = Skill(name="doc", description="d", instructions="i")
     agent = _new_agent(skills=[skill], skill_activation="llm")
-    load_tool = next(t for t in agent._meta_tools if t.name == "load_skill")
+    load_tool = _meta_tool(agent, "load_skill")
 
     result = await load_tool.run(name="doc")
     assert result == {"status": "loaded", "skill": "doc"}
@@ -426,7 +542,7 @@ async def test_unload_skill_tool_deactivates_named_skill(patched_get_llm):
     agent = _new_agent(skills=[skill], skill_activation="llm")
     await agent.activate_skill("doc")
 
-    unload_tool = next(t for t in agent._meta_tools if t.name == "unload_skill")
+    unload_tool = _meta_tool(agent, "unload_skill")
     result = await unload_tool.run(name="doc")
     assert result == {"status": "unloaded", "skill": "doc"}
     assert agent.active_skill_names() == []
@@ -436,7 +552,7 @@ async def test_load_skill_tool_returns_error_for_unknown_skill(patched_get_llm):
     """Unknown skill name must surface as a structured error, not a crash."""
     skill = Skill(name="doc", description="d", instructions="i")
     agent = _new_agent(skills=[skill], skill_activation="llm")
-    load_tool = next(t for t in agent._meta_tools if t.name == "load_skill")
+    load_tool = _meta_tool(agent, "load_skill")
 
     result = await load_tool.run(name="not_registered")
     assert result["status"] == "error"
@@ -448,7 +564,7 @@ async def test_load_skill_tool_returns_error_for_unknown_skill(patched_get_llm):
 async def test_load_skill_tool_returns_error_for_missing_name(patched_get_llm):
     skill = Skill(name="doc", description="d", instructions="i")
     agent = _new_agent(skills=[skill], skill_activation="llm")
-    load_tool = next(t for t in agent._meta_tools if t.name == "load_skill")
+    load_tool = _meta_tool(agent, "load_skill")
 
     result = await load_tool.run()
     assert result["status"] == "error"
@@ -459,7 +575,7 @@ async def test_unload_skill_tool_is_idempotent_for_inactive_skill(patched_get_ll
     """Unloading a skill that was never active is a silent success, not an error."""
     skill = Skill(name="doc", description="d", instructions="i")
     agent = _new_agent(skills=[skill], skill_activation="llm")
-    unload_tool = next(t for t in agent._meta_tools if t.name == "unload_skill")
+    unload_tool = _meta_tool(agent, "unload_skill")
 
     result = await unload_tool.run(name="doc")
     assert result == {"status": "unloaded", "skill": "doc"}
