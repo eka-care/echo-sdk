@@ -8,11 +8,22 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Literal, Optional
 
+import orjson
+from ag_ui.core import (
+    EventType,
+    RunAgentInput,
+    RunErrorEvent,
+    Tool,
+    ToolCallResultEvent,
+)
+
+from echo.ag_ui import AgUiRunner, AgUiToolDispatcher, make_pause_key
 from echo.agents.config import AgentConfig
 from echo.agents.skill import Skill
 from echo.llm import LLMConfig, get_llm
 from echo.llm.schemas import StreamEvent, StreamEventType
 from echo.prompts.templates import load_template
+from echo.models.user_conversation import Message, MessageRole, ToolResult
 from echo.tools.base_tool import BaseTool
 from echo.tools.skills import LoadSkillTool, UnloadSkillTool
 
@@ -406,8 +417,6 @@ class BaseAgent(ABC):
         pause_metadata: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[Any, None]:
         """Run the agent and yield AG-UI BaseEvents; pauses without RunFinished on a UI tool call."""
-        from echo.ag_ui import AgUiRunner, AgUiToolDispatcher
-
         ui_tool_names = {t.name for t in run_input.tools}
         dispatcher = AgUiToolDispatcher(ui_tool_names=ui_tool_names)
         runner = AgUiRunner(
@@ -436,22 +445,6 @@ class BaseAgent(ABC):
         pause_metadata: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[Any, None]:
         """Resume a previously paused run with the FE-supplied tool result and continue streaming."""
-        import orjson
-        from ag_ui.core import (
-            EventType,
-            RunAgentInput,
-            RunErrorEvent,
-            Tool,
-            ToolCallResultEvent,
-        )
-
-        from echo.ag_ui import make_pause_key
-        from echo.models.user_conversation import (
-            Message,
-            MessageRole,
-            ToolResult,
-        )
-
         key = make_pause_key(thread_id, run_id)
         paused = await paused_run_store.load(key)
         if paused is None:
