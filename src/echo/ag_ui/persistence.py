@@ -1,20 +1,4 @@
-"""
-Paused-run persistence for AG-UI runs.
-
-When an agent calls a UI tool (one declared by the FE in
-RunAgentInput.tools), the runner pauses: it emits the TOOL_CALL_*
-events, persists the in-flight state, and exits the SSE generator
-without emitting RUN_FINISHED. The FE renders the prompt, the user
-responds, and a /resume request continues the run.
-
-This module defines:
-
-  PausedRun           — serialized snapshot of a paused run
-  PausedRunStore      — Protocol for the storage backend
-  InMemoryPausedRunStore — default in-process store, for tests / dev
-
-The voice2rx-be repo provides a Redis-backed implementation in PR-V10.
-"""
+"""Paused-run persistence for AG-UI runs awaiting a UI-tool response."""
 
 import asyncio
 from dataclasses import dataclass, field
@@ -23,17 +7,7 @@ from typing import Optional, Protocol
 
 @dataclass
 class PausedRun:
-    """Snapshot of an agent run paused awaiting a UI-tool response.
-
-    Fields:
-        thread_id, run_id        — identify the paused run
-        tool_call_id             — the UI tool call awaiting a response
-        tool_call_name           — the UI tool's name
-        tool_args                — the args the agent passed to the UI tool
-        context_snapshot         — ConversationContext.model_dump(mode="json")
-        state_snapshot           — AgUiState.snapshot()
-        metadata                 — host-provided dict (b_id, document_id, etc.)
-    """
+    """Snapshot of an agent run paused awaiting a UI-tool response."""
 
     thread_id: str
     run_id: str
@@ -46,19 +20,12 @@ class PausedRun:
 
 
 def make_pause_key(thread_id: str, run_id: str) -> str:
-    """Canonical key format for paused-run storage.
-
-    Backends should use this so multiple deployments hash consistently.
-    """
+    """Canonical key format for paused-run storage."""
     return f"ag_ui:paused_run:{thread_id}:{run_id}"
 
 
 class PausedRunStore(Protocol):
-    """Storage for paused runs.
-
-    Implementations may apply TTL (default 30 min). The runtime persists
-    on pause, loads on resume, and deletes on clean completion.
-    """
+    """Storage protocol for paused runs (save/load/delete with optional TTL)."""
 
     async def save(self, key: str, snapshot: PausedRun, ttl: int = 1800) -> None: ...
 
@@ -68,13 +35,7 @@ class PausedRunStore(Protocol):
 
 
 class InMemoryPausedRunStore:
-    """In-process PausedRunStore. For tests and single-worker dev.
-
-    NOT suitable for production: state is lost on process restart and
-    not shared across workers. Use a Redis-backed implementation in
-    multi-worker deployments. TTL is accepted for API compatibility
-    but not enforced (tests don't run long enough to matter).
-    """
+    """In-process PausedRunStore for tests and single-worker dev. Not for production."""
 
     def __init__(self) -> None:
         self._runs: dict[str, PausedRun] = {}

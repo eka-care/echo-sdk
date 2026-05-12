@@ -1,11 +1,4 @@
-"""
-Base state container for AG-UI integrations.
-
-Subclasses are regular Pydantic models holding domain state.
-The host (typically AgUiRunner) calls
-begin_tracking() once after the initial STATE_SNAPSHOT is emitted, and
-drain_pending_ops() between LLM events to compute STATE_DELTA frames.
-"""
+"""Base state container for AG-UI integrations, streamed as STATE_SNAPSHOT + STATE_DELTA frames."""
 
 from typing import Any
 
@@ -22,52 +15,20 @@ from .delta import (
 
 
 class AgUiState(BaseModel):
-    """Pydantic base for state that streams over AG-UI as STATE_SNAPSHOT
-    + STATE_DELTA frames.
+    """Pydantic base for state streamed over AG-UI; supports direct mutation or explicit ops."""
 
-    Two ways to mutate state:
-
-    1. Direct Pydantic mutation, then drain_pending_ops() returns the
-       JSON Patch ops since begin_tracking() (or the previous drain).
-       Recommended — natural, fully typed.
-
-           state.sections.append(new_section)
-           state.sections[0].status.state = "ready"
-           ops = state.drain_pending_ops()
-
-    2. Explicit ops via set_path() / append_at() / remove_at(). The
-       change is applied to state and tracked by the same diff. Useful
-       when you already have JSON Pointer paths in hand.
-
-           state.append_at("/sections", new_section.model_dump(mode="json"))
-           state.set_path("/sections/0/status/state", "ready")
-
-    Both styles can be mixed in one run; drain returns the combined diff.
-    """
-
-    # baseline snapshot used to compute deltas. None until begin_tracking()
-    # is called.
     _baseline: dict | None = PrivateAttr(default=None)
 
     def begin_tracking(self) -> None:
-        """Snapshot current state as the diff baseline.
-
-        Subsequent drain_pending_ops() calls return ops since this baseline.
-        Idempotent — calling again re-baselines to the current state.
-        """
+        """Snapshot current state as the diff baseline."""
         self._baseline = self.snapshot()
 
     def stop_tracking(self) -> None:
-        """Disable tracking. drain_pending_ops() will return [] until
-        begin_tracking() is called again."""
+        """Disable tracking; drain_pending_ops() returns [] until begin_tracking() is called again."""
         self._baseline = None
 
     def drain_pending_ops(self) -> list[JsonPatchOp]:
-        """Compute JSON Patch ops from baseline to current state.
-
-        Re-baselines so the next drain returns only ops since this drain.
-        Returns [] when tracking is off or no changes have occurred.
-        """
+        """Compute JSON Patch ops from baseline to current state, then re-baseline."""
         if self._baseline is None:
             return []
         current = self.snapshot()
@@ -76,10 +37,8 @@ class AgUiState(BaseModel):
         return ops
 
     def snapshot(self) -> dict:
-        """Current state as a JSON-serializable dict (model_dump mode='json')."""
+        """Current state as a JSON-serializable dict."""
         return self.model_dump(mode="json")
-
-    # --- explicit op helpers ---
 
     def set_path(self, path: str, value: Any) -> None:
         """Apply a 'replace' op at `path`. Re-validates via Pydantic."""

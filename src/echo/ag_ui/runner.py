@@ -1,33 +1,4 @@
-"""
-AgUiRunner: translates an echo agent.run_stream() into AG-UI events.
-
-The runner emits:
-
-    RUN_STARTED
-    STATE_SNAPSHOT(snapshot)
-    [ TEXT_MESSAGE_CHUNK | TOOL_CALL_START | TOOL_CALL_ARGS | TOOL_CALL_END
-      | STATE_DELTA(ops) ]*
-    RUN_FINISHED                    (or RUN_ERROR on failure)
-
-Tool dispatch is delegated to AgUiToolDispatcher: it classifies
-each call as backend (server-executed by echo-sdk) or UI (FE-declared,
-emitted as TOOL_CALL_* and resolved via /resume). Pause/resume wiring
-into a PausedRunStore enables streaming
-TOOL_CALL_ARGS deltas from the Anthropic/Open-ai or any LLM provider.
-
-Caller responsibilities:
-
-    1. Pre-populate the AgUiState before constructing the runner — the
-       initial STATE_SNAPSHOT is taken from state.snapshot().
-    2. Provide a fresh thread_id / run_id pair (typically from the FE's
-       RunAgentInput).
-    3. (Optional) Pass an AgUiToolDispatcher pre-loaded with the
-       FE-declared UI tool names. If omitted, all tool calls are treated
-       as backend (no pause).
-    4. Consume the async generator until exhaustion. The runner guarantees
-       exactly one terminal event (RUN_FINISHED or RUN_ERROR) under
-       normal control flow.
-"""
+"""AgUiRunner: translates an echo agent.run_stream() into AG-UI events."""
 
 import logging
 import uuid
@@ -63,10 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 class AgUiRunner:
-    """Drives an echo agent's run_stream() and yields AG-UI BaseEvents.
-
-    See module docstring for the event sequence.
-    """
+    """Drives an echo agent's run_stream() and yields AG-UI BaseEvents."""
 
     def __init__(
         self,
@@ -93,14 +61,7 @@ class AgUiRunner:
         context: "ConversationContext",
         out_msg_id: str,
     ) -> AsyncGenerator[BaseEvent, None]:
-        """Run the agent and yield AG-UI events.
-
-        Terminates with exactly one of:
-          - RUN_FINISHED  on clean completion;
-          - RUN_ERROR     on stream/runner error;
-          - (nothing)     when paused on a UI tool call — the FE will
-                          resume via /resume which starts a fresh SSE.
-        """
+        """Run the agent and yield AG-UI events; emits RUN_FINISHED, RUN_ERROR, or nothing (when paused)."""
         try:
             yield RunStartedEvent(
                 type=EventType.RUN_STARTED,
@@ -190,11 +151,7 @@ class AgUiRunner:
     def _synthesize_ui_tool_events(
         self, elicitation: "ElicitationResponse"
     ) -> list[BaseEvent]:
-        """Emit AG-UI ToolCallStart / Args / End events for an elicitation.
-
-        Also registers the call in the dispatcher so consume_pause_signal()
-        and call_classification() return the right answer afterward.
-        """
+        """Emit AG-UI ToolCallStart / Args / End events for an elicitation."""
         args = dict(elicitation.details.input or {})
         args_json = orjson.dumps(args).decode()
 
@@ -248,13 +205,8 @@ class AgUiRunner:
         key = make_pause_key(self.thread_id, self.run_id)
         await self.paused_run_store.save(key, snapshot)
 
-    # ag-ui event translation helpers --- these are for AG-UI events that don't have a 1:1 mapping
     def _translate(self, sev: StreamEvent) -> list[BaseEvent]:
-        """Map one StreamEvent to zero-or-more AG-UI events.
-
-        Delegates TOOL_CALL_START / TOOL_CALL_END to the tool dispatcher.
-        DONE is consumed by the outer loop and emits no event.
-        """
+        """Map one StreamEvent to zero-or-more AG-UI events."""
         if sev.type == StreamEventType.TEXT:
             return [
                 TextMessageChunkEvent(

@@ -405,32 +405,7 @@ class BaseAgent(ABC):
         paused_run_store: Optional[Any] = None,  # echo.ag_ui.PausedRunStore
         pause_metadata: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[Any, None]:
-        """Run the agent and yield AG-UI BaseEvents.
-
-        Thin convenience wrapper around AgUiRunner that constructs the
-        dispatcher from `run_input.tools` (FE-declared UI tools) and
-        plumbs through the optional paused-run store.
-
-        On a UI tool call the runner persists state, emits the tool
-        events, and returns without RunFinished — the FE issues a
-        /resume request to continue (see resume_run_with_ag_ui).
-
-        Args:
-            context: ConversationContext, mutated as the agent runs.
-            run_input: ag_ui.core.RunAgentInput. Used for thread_id,
-                run_id, and the FE-declared UI tool list. The
-                run_input.state field is NOT auto-applied here — the
-                host is expected to have already applied it to `state`.
-            state: AgUiState subclass instance.
-            out_msg_id: Echo-SDK message id for grouping LLM responses.
-            paused_run_store: Required when UI tools are declared.
-            pause_metadata: Optional dict attached to the persisted
-                PausedRun (e.g. b_id, document_id) so the host can
-                re-locate it on resume.
-
-        Yields:
-            ag_ui.core.BaseEvent instances.
-        """
+        """Run the agent and yield AG-UI BaseEvents; pauses without RunFinished on a UI tool call."""
         from echo.ag_ui import AgUiRunner, AgUiToolDispatcher
 
         ui_tool_names = {t.name for t in run_input.tools}
@@ -460,29 +435,7 @@ class BaseAgent(ABC):
         ui_tool_names: Optional[List[str]] = None,
         pause_metadata: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[Any, None]:
-        """Resume a previously paused run with the FE-supplied tool result.
-
-        Caller responsibilities:
-          - Have validated the resume request (auth, etc.).
-          - Have rehydrated `context` and `state` from the saved
-            PausedRun's snapshots — the host owns deserialization since
-            it knows its domain models.
-
-        This method:
-          1. Loads the PausedRun by (thread_id, run_id) and validates
-             tool_call_id matches.
-          2. Emits a TOOL_CALL_RESULT event so the FE sees the
-             resolution.
-          3. Appends a TOOL message carrying the tool_result to
-             `context`.
-          4. Invokes run_stream_with_ag_ui() to continue. RUN_STARTED
-             and STATE_SNAPSHOT fire again — the FE replaces its state
-             from the snapshot, which is consistent because the host
-             already restored state from PausedRun.
-
-        On clean completion the paused-run entry is deleted by the
-        runner. On re-pause it's overwritten in place.
-        """
+        """Resume a previously paused run with the FE-supplied tool result and continue streaming."""
         import orjson
         from ag_ui.core import (
             EventType,
