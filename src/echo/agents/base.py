@@ -12,6 +12,7 @@ from echo.agents.config import AgentConfig
 from echo.agents.skill import Skill
 from echo.llm import LLMConfig, get_llm
 from echo.llm.schemas import StreamEvent, StreamEventType
+from echo.prompts.templates import load_template
 from echo.tools.base_tool import BaseTool
 from echo.tools.skills import LoadSkillTool, UnloadSkillTool
 
@@ -269,50 +270,71 @@ class BaseAgent(ABC):
         self, skip_goal: bool = False, skip_expected_output: bool = False
     ) -> str:
         """Build system prompt from agent config (and active skills, if any)."""
-        system_prompt = ""
+        system_prompt_parts, base_user_prompt = [], ""
         if self.role:
-            system_prompt = f"You are a {self.role}\n\n"
+            base_user_prompt = f"You are a {self.role}\n\n"
         if not skip_goal and self.goal:
-            system_prompt += f"Your goal is: {self.goal}\n\n"
+            base_user_prompt += f"Your goal is: {self.goal}\n\n"
 
         if not self.task_description:
             logger.error("Task description is required for agent: %s", self.name)
             raise Exception("Task description is required")
-        system_prompt += f"{self.task_description} \n\n"
-
+        base_user_prompt += f"{self.task_description}"
         if not skip_expected_output and self.expected_output:
-            system_prompt += f"Expected Output: {self.expected_output}"
+            base_user_prompt += f"\n\nExpected Output: {self.expected_output}"
+
+        system_prompt_parts.append(base_user_prompt)
 
         # Append active skill blocks (and registry in LLM mode). When no
         # skills are registered this is a no-op and produces the same string
         # as before.
         if self.skills:
-            system_prompt = self._append_skill_content(system_prompt)
+            system_prompt_parts[0] = (
+                "<base_user_prompt>\n"
+                + system_prompt_parts[0]
+                + "\n</base_user_prompt>"
+            )
+            skill_prompt_parts = self._get_skill_content()
+            system_prompt_parts.extend(skill_prompt_parts)
 
+        system_prompt = "\n\n".join(system_prompt_parts)
         return system_prompt
 
-    def _append_skill_content(self, base_prompt: str) -> str:
-        """Append <active_skill> blocks (and <available_skills> in LLM mode).
+    def _get_skill_content(self) -> List[str]:
+        """Get skill sections in attention-friendly order.
 
-        Active skills are appended in activation order (the order they were
-        loaded). The <available_skills> registry, when present, lists every
-        registered skill in registration order.
+        Order: <skill_mechanism> → <available_skills> registry (llm mode)
+        → <active_skills> name list → <active_skill> bodies. The mechanism
+        block precedes the registry it references, and the active-name list
+        precedes the active-body content it indexes.
         """
-        parts: List[str] = [base_prompt]
-        for name in self._active_skill_names:
-            skill = self.skills.get(name)
-            if skill is not None:
-                parts.append(
-                    f'\n\n<active_skill name="{skill.name}">\n'
-                    f"{skill.instructions}\n"
-                    f"</active_skill>"
-                )
+        parts = [load_template("skill_mechanism")]
+
+        # [2] <available_skills> — registry list (llm mode only).
         if self.skill_activation == "llm":
             registry = "\n".join(
-                f"- {s.name}: {s.description}" for s in self.skills.values()
+                f"- **{s.name}**: {s.description}" for s in self.skills.values()
             )
-            parts.append(f"\n\n<available_skills>\n{registry}\n</available_skills>")
-        return "".join(parts)
+            parts.append(f"<available_skills>\n{registry}\n</available_skills>")
+
+        # [3] <active_skills> — names of currently-active skills.
+        if self._active_skill_names:
+            active_list = "\n".join(f"- {n}" for n in self._active_skill_names)
+            parts.append(f"<active_skills>\n{active_list}\n</active_skills>")
+
+            # [4] <active_skill> bodies — full instructions, in activation order.
+            for name in self._active_skill_names:
+                skill = self.skills.get(name)
+                if skill is not None:
+                    parts.append(
+                        f'<active_skill name="{skill.name}">\n'
+                        f"{skill.instructions}\n"
+                        f"</active_skill>"
+                    )
+        else:
+            parts.append("<active_skills>\nNo active skills\n</active_skills>")
+
+        return parts
 
     async def _run_agent(
         self, context: "ConversationContext", out_msg_id: str

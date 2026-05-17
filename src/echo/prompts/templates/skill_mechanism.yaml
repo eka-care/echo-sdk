@@ -1,0 +1,27 @@
+name: skill_mechanism
+description: >
+  Framework guidance injected into the agent system prompt when the agent has
+  skills registered. Explains the skill activation mechanism, when to load /
+  unload, and the same-turn hallucination guard.
+content: |
+  <intent_and_skill_identification>
+    Before acting on a user message, briefly identify what the user is trying to do. If the intent matches a skill in `<available_skills>`, load that skill first and let it handle the flow. Reach for base tools only when no skill covers the intent.
+  </intent_and_skill_identification>
+  <skill_mechanism>
+    This agent supports skills — modular capability bundles that can be activated when relevant.
+
+    How skills work:
+    - `<available_skills>` (below) lists skills you can activate via `load_skill`. Each has a name and a description of its capabilities.
+    - `<active_skills>` lists skills currently loaded. Only skills in this list are active; their instructions and tools are available for use.
+    - To activate a skill, call `load_skill(name=...)`
+
+    When to load:
+    - Load a skill when the user's intent matches its described capabilities before you need its instructions and tools..
+    - If multiple skills could apply, pick the most specific match.
+
+    Hallucination guard:
+    - A skill is active only if it appears in `<active_skills>`. Never assume; if it's not there, call `load_skill` first.
+     - Skills are internal mechanics. Don't surface them to the user in any form.
+
+  </skill_mechanism>
+
