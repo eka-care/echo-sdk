@@ -1,19 +1,27 @@
 """
 Example: GenericAgent with Skills (LLM-driven and manual activation).
 
-A Skill bundles `(prompt fragment + tools + description)` that the agent
-attaches and detaches mid-conversation. This example shows both activation
-modes side by side using stub tools, so the wiring is visible without needing
-provider credentials.
+A Skill bundles `(prompt fragment + tool name references + description)` that
+the agent attaches and detaches mid-conversation. Tools themselves live in
+the agent's name-keyed registry; a skill just references the names it needs
+visible while it is active. Two skills referencing the same tool name see
+the same instance and the tool appears once in the LLM's tool list.
+
+This example shows both activation modes side by side using stub tools, so
+the wiring is visible without needing provider credentials.
 
 Concepts demonstrated:
-  - Defining a Skill with instructions and tools.
+  - Defining a Skill that references tools by name (`tool_names`).
   - LLM-driven mode: the agent auto-injects `load_skill` / `unload_skill`
     meta-tools and an <available_skills> registry block. The model decides
     when to load.
   - Manual mode: the host calls `await agent.activate_skill(name)` directly.
     The model never sees a registry — it just sees whatever is currently
     active.
+  - `base_tool_names` to mark a subset of `tools` as always visible; the
+    rest become visible only when a skill names them.
+  - Two skills sharing a tool: the tool appears exactly once in the per-turn
+    tool list while both skills are active.
 
 To wire this into a real LLM, swap the agent's `llm_config` for one that
 matches your environment (see examples/mcp_agent_usage.py for a Bedrock
@@ -71,6 +79,17 @@ You are now operating in the lab test booking flow.
 """
 
 
+def build_tools() -> list:
+    """Build every tool the agent can ever use. Both skills share `note_user`
+    so we can demonstrate name-set dedup when both are simultaneously active.
+    """
+    return [
+        _StubTool("search_doctors", "Search the directory of doctors."),
+        _StubTool("search_lab_packages", "Search lab test packages."),
+        _StubTool("note_user", "Persist a short note about the user."),
+    ]
+
+
 def build_doctor_skill() -> Skill:
     return Skill(
         name="doctor_booking",
@@ -79,7 +98,7 @@ def build_doctor_skill() -> Skill:
             "(by symptom, specialty, doctor name, or hospital)."
         ),
         instructions=DOCTOR_BOOKING_INSTRUCTIONS,
-        tools=[_StubTool("search_doctors", "Search the directory of doctors.")],
+        tool_names=["search_doctors", "note_user"],
     )
 
 
@@ -88,7 +107,7 @@ def build_lab_skill() -> Skill:
         name="lab_booking",
         description="Use when the user wants to book a diagnostic / lab test.",
         instructions=LAB_BOOKING_INSTRUCTIONS,
-        tools=[_StubTool("search_lab_packages", "Search lab test packages.")],
+        tool_names=["search_lab_packages", "note_user"],
     )
 
 
@@ -126,7 +145,10 @@ async def demo_llm_mode() -> None:
 
     agent = GenericAgent(
         agent_config=AGENT_CONFIG,
+        tools=build_tools(),
         skills=[build_doctor_skill(), build_lab_skill()],
+        # Nothing is visible by default — every tool is skill-gated.
+        base_tool_names=[],
         # skill_activation="llm" is the default; shown here for clarity.
         skill_activation="llm",
     )
@@ -149,7 +171,18 @@ async def demo_llm_mode() -> None:
     for t in agent._build_active_tools():
         print(f"  - {t.name}")
 
-    print("\n--- System prompt now contains the active skill block ---")
+    # Load the second skill too — both reference `note_user` so name-set
+    # dedup means it appears exactly once.
+    print("\n--- LLM also calls load_skill(name='lab_booking') ---")
+    result = await load_tool.run(name="lab_booking")
+    print(f"  result: {result}")
+
+    names = [t.name for t in agent._build_active_tools()]
+    print("\n--- Tools available with BOTH skills active ---")
+    print(f"  {names}")
+    print(f"  note_user appears {names.count('note_user')} time(s) — dedup works")
+
+    print("\n--- System prompt now contains both active skill blocks ---")
     prompt = agent._build_system_prompt()
     # Print just the skill-relevant section to keep output short.
     if "<active_skill" in prompt:
@@ -171,7 +204,9 @@ async def demo_manual_mode() -> None:
 
     agent = GenericAgent(
         agent_config=AGENT_CONFIG,
+        tools=build_tools(),
         skills=[build_doctor_skill(), build_lab_skill()],
+        base_tool_names=[],
         skill_activation="manual",
     )
 

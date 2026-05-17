@@ -78,9 +78,7 @@ class MCPConnectionManager:
             logger.debug("Executed %s", tool_name)
             return result
         except Exception as e:
-            raise MCPExecutionError(
-                f"Failed to execute '{tool_name}': {e}"
-            ) from e
+            raise MCPExecutionError(f"Failed to execute '{tool_name}': {e}") from e
         finally:
             await self._close_parts(session, transport_ctx, http_client)
 
@@ -170,6 +168,7 @@ class MCPConnectionManager:
 
     def _connect_sse(self):
         from mcp.client.sse import sse_client
+
         return sse_client(
             url=str(self._config.url),
             headers=self._config.headers,
@@ -179,6 +178,7 @@ class MCPConnectionManager:
 
     def _connect_stdio(self):
         from mcp.client.stdio import StdioServerParameters, stdio_client
+
         server_params = StdioServerParameters(
             command=self._config.command,
             args=self._config.args or [],
@@ -188,6 +188,7 @@ class MCPConnectionManager:
 
     def _connect_streamable_http(self):
         from mcp.client.streamable_http import streamable_http_client
+
         http_client = httpx.AsyncClient(
             headers=self._config.headers or {},
             timeout=httpx.Timeout(
@@ -204,12 +205,6 @@ class MCPConnectionManager:
         tool_names: Optional[List[str]],
     ) -> List[MCPTool]:
         result = tools
-        if self._config.tool_include:
-            inc = set(self._config.tool_include)
-            result = [t for t in result if t.name in inc]
-        if self._config.tool_exclude:
-            exc = set(self._config.tool_exclude)
-            result = [t for t in result if t.name not in exc]
         if tool_names:
             wanted = set(tool_names)
             result = [t for t in result if t.name in wanted]
