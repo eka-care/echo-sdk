@@ -72,7 +72,6 @@ class PgQueryTool(BaseTool):
         return dict(kwargs)
 
     async def run(self, *, tool_context: Optional[dict] = None, **kwargs: Any) -> Any:
-        breakpoint()
         params = self.transform_params(tool_context, **kwargs)
         if self.fetch_mode == "one":
             return await self.client.fetch_one(self.sql, params=params)
