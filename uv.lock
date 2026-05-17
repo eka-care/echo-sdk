@@ -831,7 +831,7 @@ wheels = [
 
 [[package]]
 name = "echo"
-version = "0.1.34"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "orjson" },
