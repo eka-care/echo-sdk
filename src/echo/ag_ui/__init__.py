@@ -1,6 +1,6 @@
 """AG-UI integration for Echo SDK: bridges echo agent streams to the AG-UI protocol."""
 
-from .ag_ui_agent import AgUiAgent
+from echo.agents.ag_ui_agent import AgUiAgent
 from .persistence import (
     InMemoryPausedRunStore,
     PausedRun,
