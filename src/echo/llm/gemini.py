@@ -19,6 +19,8 @@ from echo.models.user_conversation import (
 from echo.tools.base_tool import BaseTool
 from echo.tools.schemas import ElicitationResponse
 
+import orjson
+
 from .base import BaseLLM
 from .config import LLMConfig
 from .schemas import LLMResponse, StreamEvent, StreamEventType, VerboseResponseItem
@@ -366,6 +368,17 @@ class GeminiLLM(BaseLLM):
                                     details={
                                         "tool_id": tool_call.tool_id,
                                         "tool_name": tool_call.tool_name,
+                                    },
+                                )
+                                # forward the full args as a single TOOL_CALL_ARGS event so any partial data consumers like ag-ui etc
+                                # can render args. gemini returns complete function_call objects rather than streaming partial json fragments,
+                                # so we emit one event with the entire serialized args. skip for elicitation tools, mirroring the TOOL_CALL_START / TOOL_CALL_END skip.
+                                yield StreamEvent(
+                                    type=StreamEventType.TOOL_CALL_ARGS,
+                                    details={
+                                        "tool_id": tool_call.tool_id,
+                                        "tool_name": tool_call.tool_name,
+                                        "delta": orjson.dumps(tool_call.tool_input).decode("utf-8"),
                                     },
                                 )
 

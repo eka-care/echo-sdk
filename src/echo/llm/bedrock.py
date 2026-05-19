@@ -316,9 +316,19 @@ class BedrockLLM(BaseLLM):
                                 type=StreamEventType.TEXT, text=delta["text"]
                             )
                         elif "toolUse" in delta:
-                            blocks[block_id]["input_json"] += delta["toolUse"].get(
-                                "input", ""
-                            )
+                            tool_input_fragment = delta["toolUse"].get("input", "")
+                            blocks[block_id]["input_json"] += tool_input_fragment
+                            # forward the partial json fragment as a streaming TOOL_CALL_ARGS event so any partial data consumers like ag-ui etc
+                            # can render args as they arrive. skip for elicitation tools, mirroring the TOOL_CALL_START / TOOL_CALL_END skip below.
+                            if not blocks[block_id].get("is_elicitation"):
+                                yield StreamEvent(
+                                    type=StreamEventType.TOOL_CALL_ARGS,
+                                    details={
+                                        "tool_id": blocks[block_id]["tool_id"],
+                                        "tool_name": blocks[block_id]["tool_name"],
+                                        "delta": tool_input_fragment,
+                                    },
+                                )
 
                     elif "contentBlockStop" in event:
                         block_id = event["contentBlockStop"].get("contentBlockIndex")
