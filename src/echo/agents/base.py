@@ -20,8 +20,8 @@ from .schemas import AgentResult
 
 logger = logging.getLogger(__name__)
 
-# Skill tools cannot use these names when skill_activation == "llm";
-# they are reserved for the auto-injected load_skill / unload_skill meta-tools.
+# Reserved tool names for the LLM-driven activation surface (PR2).
+# Skill tools cannot use these names when skill_activation == "llm".
 _RESERVED_META_TOOL_NAMES = ("load_skill", "unload_skill")
 
 SkillActivation = Literal["llm", "manual"]
