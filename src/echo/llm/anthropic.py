@@ -310,6 +310,17 @@ class AnthropicLLM(BaseLLM):
                                 )
                             elif delta.type == "input_json_delta":
                                 blocks[block_id]["input_json"] += delta.partial_json
+                                # forward the partial json fragment as a streaming TOOL_CALL_ARGS event so any partial data consumers like ag-ui etc
+                                # can render args as they arrive. skip for elicitation tools, mirroring the TOOL_CALL_START / TOOL_CALL_END skip below.
+                                if not blocks[block_id].get("is_elicitation"):
+                                    yield StreamEvent(
+                                        type=StreamEventType.TOOL_CALL_ARGS,
+                                        details={
+                                            "tool_id": blocks[block_id]["tool_id"],
+                                            "tool_name": blocks[block_id]["tool_name"],
+                                            "delta": delta.partial_json,
+                                        },
+                                    )
 
                         elif event.type == "content_block_stop":
                             block_id = event.index

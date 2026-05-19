@@ -362,6 +362,17 @@ class OpenAILLM(BaseLLM):
                                 tool_calls_map[idx][
                                     "arguments"
                                 ] += tc_delta.function.arguments
+                                # forward the partial json fragment as a streaming TOOL_CALL_ARGS event so any partial data consumers like ag-ui etc
+                                # can render args as they arrive. skip for elicitation tools, mirroring the TOOL_CALL_START / TOOL_CALL_END skip below.
+                                if not tool_calls_map[idx].get("is_elicitation"):
+                                    yield StreamEvent(
+                                        type=StreamEventType.TOOL_CALL_ARGS,
+                                        details={
+                                            "tool_id": tool_calls_map[idx]["id"],
+                                            "tool_name": tool_calls_map[idx]["name"],
+                                            "delta": tc_delta.function.arguments,
+                                        },
+                                    )
 
                 # -- end of stream --
 
