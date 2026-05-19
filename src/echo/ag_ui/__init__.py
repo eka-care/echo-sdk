@@ -1,5 +1,6 @@
 """AG-UI integration for Echo SDK: bridges echo agent streams to the AG-UI protocol."""
 
+from .agent import AgUiAgent
 from .persistence import (
     InMemoryPausedRunStore,
     PausedRun,
@@ -12,6 +13,7 @@ from .state import AgUiState
 from .tool_dispatcher import AgUiToolDispatcher, PauseSignal
 
 __all__ = [
+    "AgUiAgent",
     "AgUiState",
     "AgUiRunner",
     "AgUiToolDispatcher",

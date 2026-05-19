@@ -8,22 +8,11 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Literal, Optional
 
-import orjson
-from ag_ui.core import (
-    EventType,
-    RunAgentInput,
-    RunErrorEvent,
-    Tool,
-    ToolCallResultEvent,
-)
-
-from echo.ag_ui import AgUiRunner, AgUiToolDispatcher, make_pause_key
 from echo.agents.config import AgentConfig
 from echo.agents.skill import Skill
 from echo.llm import LLMConfig, get_llm
 from echo.llm.schemas import StreamEvent, StreamEventType
 from echo.prompts.templates import load_template
-from echo.models.user_conversation import Message, MessageRole, ToolResult
 from echo.tools.base_tool import BaseTool
 from echo.tools.skills import LoadSkillTool, UnloadSkillTool
 
@@ -31,8 +20,8 @@ from .schemas import AgentResult
 
 logger = logging.getLogger(__name__)
 
-# Reserved tool names for the LLM-driven activation surface (PR2).
-# Skill tools cannot use these names when skill_activation == "llm".
+# Skill tools cannot use these names when skill_activation == "llm";
+# they are reserved for the auto-injected load_skill / unload_skill meta-tools.
 _RESERVED_META_TOOL_NAMES = ("load_skill", "unload_skill")
 
 SkillActivation = Literal["llm", "manual"]
@@ -405,115 +394,6 @@ class BaseAgent(ABC):
                 exc_info=True,
             )
             yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
-
-    # --- AG-UI public API ---
-    async def run_stream_with_ag_ui(
-        self,
-        context: "ConversationContext",
-        run_input: Any,  # ag_ui.core.RunAgentInput
-        state: Any,  # echo.ag_ui.AgUiState subclass
-        out_msg_id: str,
-        paused_run_store: Optional[Any] = None,  # echo.ag_ui.PausedRunStore
-        pause_metadata: Optional[Dict[str, Any]] = None,
-    ) -> AsyncGenerator[Any, None]:
-        """Run the agent and yield AG-UI BaseEvents; pauses without RunFinished on a UI tool call."""
-        ui_tool_names = {t.name for t in run_input.tools}
-        dispatcher = AgUiToolDispatcher(ui_tool_names=ui_tool_names)
-        runner = AgUiRunner(
-            agent=self,
-            state=state,
-            thread_id=run_input.thread_id,
-            run_id=run_input.run_id,
-            tool_dispatcher=dispatcher,
-            paused_run_store=paused_run_store,
-            pause_metadata=pause_metadata,
-        )
-        async for ev in runner.stream(context, out_msg_id):
-            yield ev
-
-    async def resume_run_with_ag_ui(
-        self,
-        paused_run_store: Any,  # echo.ag_ui.PausedRunStore
-        thread_id: str,
-        run_id: str,
-        tool_call_id: str,
-        tool_result: Any,
-        state: Any,  # AgUiState
-        context: "ConversationContext",
-        out_msg_id: str,
-        ui_tool_names: Optional[List[str]] = None,
-        pause_metadata: Optional[Dict[str, Any]] = None,
-    ) -> AsyncGenerator[Any, None]:
-        """Resume a previously paused run with the FE-supplied tool result and continue streaming."""
-        key = make_pause_key(thread_id, run_id)
-        paused = await paused_run_store.load(key)
-        if paused is None:
-            yield RunErrorEvent(
-                type=EventType.RUN_ERROR,
-                message=f"paused run not found or expired: {key}",
-                code="paused_run_expired",
-            )
-            return
-        if paused.tool_call_id != tool_call_id:
-            yield RunErrorEvent(
-                type=EventType.RUN_ERROR,
-                message=(
-                    f"tool_call_id mismatch (paused on {paused.tool_call_id}, "
-                    f"resume tried {tool_call_id})"
-                ),
-                code="tool_call_id_mismatch",
-            )
-            return
-
-        # tell the FE we received the result.
-        if isinstance(tool_result, str):
-            result_str = tool_result
-        else:
-            result_str = orjson.dumps(tool_result).decode()
-
-        yield ToolCallResultEvent(
-            type=EventType.TOOL_CALL_RESULT,
-            message_id=out_msg_id,
-            tool_call_id=tool_call_id,
-            content=result_str,
-            role="tool",
-        )
-
-        # inject the tool result into the conversation context.
-        context.add_message(
-            Message(
-                role=MessageRole.TOOL,
-                content=[ToolResult(tool_id=tool_call_id, result=result_str)],
-                msg_id=out_msg_id,
-            )
-        )
-
-        # build a fresh RunAgentInput re-declaring the UI tools so the
-        # next agent turn can pause again on a different UI tool if
-        # needed.
-        fresh_tools = [
-            Tool(name=n, description="", parameters=None)
-            for n in (ui_tool_names or [])
-        ]
-        fresh_input = RunAgentInput(
-            thread_id=thread_id,
-            run_id=run_id,
-            state={},
-            messages=[],
-            tools=fresh_tools,
-            context=[],
-            forwarded_props={},
-        )
-
-        async for ev in self.run_stream_with_ag_ui(
-            context=context,
-            run_input=fresh_input,
-            state=state,
-            out_msg_id=out_msg_id,
-            paused_run_store=paused_run_store,
-            pause_metadata=pause_metadata,
-        ):
-            yield ev
 
     # --- Framework Adapters ---
     def to_crewai_agent(self, **kwargs) -> Any:

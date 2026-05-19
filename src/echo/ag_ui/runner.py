@@ -14,6 +14,7 @@ from ag_ui.core import (
     StateDeltaEvent,
     StateSnapshotEvent,
     TextMessageChunkEvent,
+    Tool,
     ToolCallArgsEvent,
     ToolCallEndEvent,
     ToolCallStartEvent,
@@ -45,6 +46,7 @@ class AgUiRunner:
         tool_dispatcher: Optional[AgUiToolDispatcher] = None,
         paused_run_store: Optional[PausedRunStore] = None,
         pause_metadata: Optional[dict] = None,
+        ui_tools: Optional[list[Tool]] = None,
     ) -> None:
         self.agent = agent
         self.state = state
@@ -53,6 +55,7 @@ class AgUiRunner:
         self.tool_dispatcher = tool_dispatcher or AgUiToolDispatcher()
         self.paused_run_store = paused_run_store
         self.pause_metadata = pause_metadata or {}
+        self.ui_tools = list(ui_tools or [])
         # stable message_id so all TEXT chunks group into one assistant turn.
         self._assistant_message_id = str(uuid.uuid4())
 
@@ -185,21 +188,15 @@ class AgUiRunner:
         elicitation: "ElicitationResponse",
     ) -> None:
         """Persist the paused run to the configured store."""
-        ctx_snap: dict
-        try:
-            ctx_snap = context.model_dump(mode="json")
-        except Exception:
-            # defensive: callers may pass non-Pydantic stand-ins (tests).
-            ctx_snap = {}
-
         snapshot = PausedRun(
             thread_id=self.thread_id,
             run_id=self.run_id,
             tool_call_id=elicitation.tool_id,
             tool_call_name=elicitation.tool_name,
             tool_args=dict(elicitation.details.input or {}),
-            context_snapshot=ctx_snap,
+            context_snapshot=context.model_dump(mode="json"),
             state_snapshot=self.state.snapshot(),
+            ui_tools=[t.model_dump(mode="json") for t in self.ui_tools],
             metadata=dict(self.pause_metadata),
         )
         key = make_pause_key(self.thread_id, self.run_id)

@@ -16,6 +16,10 @@ class PausedRun:
     tool_args: dict
     context_snapshot: dict
     state_snapshot: dict
+    # dumped ag_ui.core.Tool objects (name + description + parameters). Stored
+    # so resume can re-declare the FE-side tool surface without the caller
+    # having to re-supply schemas.
+    ui_tools: list = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
 
 
