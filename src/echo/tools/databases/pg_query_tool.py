@@ -76,5 +76,5 @@ class PgQueryTool(BaseTool):
         if self.fetch_mode == "one":
             return await self.client.fetch_one(self.sql, params=params)
         data = await self.client.fetch_all(self.sql, params=params)
-        log.info("kwargs: %s :: fetched %s rows", kwargs, data)
+        # log.info("kwargs: %s :: fetched %s rows", kwargs, data)
         return data
