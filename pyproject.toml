@@ -1,6 +1,6 @@
 [project]
 name = "echo"
-version = "0.2.0"
+version = "0.2.1"
 description = "Framework-agnostic medical Agent building SDK with multi-provider LLM and Tools and Skills support"
 readme = "README.md"
 license = "MIT"
