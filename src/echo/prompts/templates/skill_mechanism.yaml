@@ -21,7 +21,6 @@ content: |
 
     Hallucination guard:
     - A skill is active only if it appears in `<active_skills>`. Never assume; if it's not there, call `load_skill` first.
-     - Skills are internal mechanics. Don't surface them to the user in any form.
-
+    - Skills are internal mechanics. Don't name them, announce loading or unloading, or narrate transitions between skills. Just act.
   </skill_mechanism>
 
