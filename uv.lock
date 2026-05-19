@@ -843,17 +843,19 @@ wheels = [
 
 [[package]]
 name = "echo"
-version = "0.2.1"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
-    { name = "ag-ui-protocol" },
-    { name = "jsonpatch" },
     { name = "orjson" },
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
 
 [package.optional-dependencies]
+ag-ui = [
+    { name = "ag-ui-protocol" },
+    { name = "jsonpatch" },
+]
 all = [
     { name = "anthropic" },
     { name = "asyncpg" },
@@ -900,7 +902,7 @@ postgres = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ag-ui-protocol", specifier = ">=0.1.0" },
+    { name = "ag-ui-protocol", marker = "extra == 'ag-ui'", specifier = ">=0.1.0" },
     { name = "anthropic", marker = "extra == 'all'", specifier = ">=0.18.0" },
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.18.0" },
     { name = "asyncpg", marker = "extra == 'all'", specifier = ">=0.29.0" },
@@ -912,7 +914,7 @@ requires-dist = [
     { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=1.0.0" },
     { name = "httpx", marker = "extra == 'all'", specifier = ">=0.27.0" },
     { name = "httpx", marker = "extra == 'ekacare'", specifier = ">=0.27.0" },
-    { name = "jsonpatch", specifier = ">=1.33" },
+    { name = "jsonpatch", marker = "extra == 'ag-ui'", specifier = ">=1.33" },
     { name = "langfuse", marker = "extra == 'all'", specifier = ">=2.0.0" },
     { name = "langfuse", marker = "extra == 'langfuse'", specifier = ">=2.0.0" },
     { name = "mcp", marker = "extra == 'all'", specifier = ">=1.8.0" },
@@ -927,7 +929,7 @@ requires-dist = [
     { name = "python-dotenv", marker = "extra == 'dev'", specifier = ">=1.2.1" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
-provides-extras = ["bedrock", "openai", "anthropic", "gemini", "ekacare", "crewai", "mcp", "postgres", "langfuse", "all", "dev"]
+provides-extras = ["bedrock", "openai", "anthropic", "gemini", "ekacare", "crewai", "mcp", "postgres", "langfuse", "ag-ui", "all", "dev"]
 
 [[package]]
 name = "et-xmlfile"
