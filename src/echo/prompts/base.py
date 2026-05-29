@@ -7,6 +7,8 @@ from pydantic import BaseModel
 
 from echo.agents.config import AgentConfig
 
+from .observability import NoopPromptObservability, PromptObservability
+
 
 class FetchedPrompt(BaseModel):
     """Prompt with ready-to-use AgentConfig."""
@@ -26,6 +28,15 @@ class PromptFetchError(Exception):
 
 class BasePromptProvider(ABC):
     """Abstract base class for prompt providers."""
+
+    def __init__(self, observability: Optional[PromptObservability] = None) -> None:
+        """
+        Args:
+            observability: Hook into prompt events (start/success/failure).
+        """
+        self.observability: PromptObservability = (
+            observability or NoopPromptObservability()
+        )
 
     @abstractmethod
     async def get_prompt(
