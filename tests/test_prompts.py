@@ -7,11 +7,13 @@ functionality of the prompt management system.
 
 import pytest
 
-from echo.agents.config import AgentConfig, PersonaConfig, TaskConfig
 from echo.prompts import (
+    AgentPrompt,
     BasePromptProvider,
     FetchedPrompt,
+    PromptPersona,
     PromptFetchError,
+    PromptTask,
     get_prompt_provider,
     reset_prompt_provider,
 )
@@ -22,101 +24,101 @@ class TestFetchedPrompt:
 
     def test_basic_creation(self):
         """Test creating a basic FetchedPrompt."""
-        config = AgentConfig(
-            persona=PersonaConfig(role="Test Role"),
-            task=TaskConfig(description="Test task", expected_output="Output"),
+        prompt_def = AgentPrompt(
+            persona=PromptPersona(role="Test Role"),
+            task=PromptTask(description="Test task", expected_output="Output"),
         )
         prompt = FetchedPrompt(
             name="test-prompt",
-            agent_config=config,
+            agent_prompt=prompt_def,
         )
         assert prompt.name == "test-prompt"
         assert prompt.version is None
-        assert prompt.agent_config.task.description == "Test task"
+        assert prompt.agent_prompt.task.description == "Test task"
 
     def test_with_version(self):
         """Test creating a FetchedPrompt with version."""
-        config = AgentConfig(
-            task=TaskConfig(description="Test content"),
+        prompt_def = AgentPrompt(
+            task=PromptTask(description="Test content"),
         )
         prompt = FetchedPrompt(
             name="test-prompt",
             version="3",
-            agent_config=config,
+            agent_prompt=prompt_def,
         )
         assert prompt.version == "3"
 
-    def test_agent_config_access(self):
-        """Test accessing agent_config fields."""
-        config = AgentConfig(
-            persona=PersonaConfig(
+    def test_agent_prompt_access(self):
+        """Test accessing agent_prompt fields."""
+        prompt_def = AgentPrompt(
+            persona=PromptPersona(
                 role="Medical Analyst",
                 goal="Provide accurate analysis",
                 backstory="Expert in medical data",
             ),
-            task=TaskConfig(
+            task=PromptTask(
                 description="Analyze the patient data",
                 expected_output="A summary report",
             ),
         )
         prompt = FetchedPrompt(
             name="test-prompt",
-            agent_config=config,
+            agent_prompt=prompt_def,
         )
 
-        assert prompt.agent_config.task.description == "Analyze the patient data"
-        assert prompt.agent_config.task.expected_output == "A summary report"
-        assert prompt.agent_config.persona.role == "Medical Analyst"
-        assert prompt.agent_config.persona.goal == "Provide accurate analysis"
-        assert prompt.agent_config.persona.backstory == "Expert in medical data"
+        assert prompt.agent_prompt.task.description == "Analyze the patient data"
+        assert prompt.agent_prompt.task.expected_output == "A summary report"
+        assert prompt.agent_prompt.persona.role == "Medical Analyst"
+        assert prompt.agent_prompt.persona.goal == "Provide accurate analysis"
+        assert prompt.agent_prompt.persona.backstory == "Expert in medical data"
 
 
-class TestAgentConfig:
-    """Tests for AgentConfig model."""
+class TestAgentPrompt:
+    """Tests for AgentPrompt model."""
 
     def test_with_all_fields(self):
-        """Test creating AgentConfig with all fields present."""
-        config = AgentConfig(
-            persona=PersonaConfig(
+        """Test creating AgentPrompt with all fields present."""
+        prompt_def = AgentPrompt(
+            persona=PromptPersona(
                 role="Medical Analyst",
                 goal="Provide accurate analysis",
                 backstory="Expert in medical data",
             ),
-            task=TaskConfig(
+            task=PromptTask(
                 description="Analyze the patient data",
                 expected_output="A summary report",
             ),
         )
 
-        assert config.task.description == "Analyze the patient data"
-        assert config.task.expected_output == "A summary report"
-        assert config.persona.role == "Medical Analyst"
-        assert config.persona.goal == "Provide accurate analysis"
-        assert config.persona.backstory == "Expert in medical data"
+        assert prompt_def.task.description == "Analyze the patient data"
+        assert prompt_def.task.expected_output == "A summary report"
+        assert prompt_def.persona.role == "Medical Analyst"
+        assert prompt_def.persona.goal == "Provide accurate analysis"
+        assert prompt_def.persona.backstory == "Expert in medical data"
 
     def test_with_required_fields_only(self):
-        """Test creating AgentConfig with only required fields."""
-        config = AgentConfig(
-            task=TaskConfig(
+        """Test creating AgentPrompt with only required fields."""
+        prompt_def = AgentPrompt(
+            task=PromptTask(
                 description="Do the task",
                 expected_output="The output",
             ),
         )
 
-        assert config.task.description == "Do the task"
-        assert config.task.expected_output == "The output"
+        assert prompt_def.task.description == "Do the task"
+        assert prompt_def.task.expected_output == "The output"
         # Optional fields should default to None
-        assert config.persona.role is None
-        assert config.persona.goal is None
-        assert config.persona.backstory is None
+        assert prompt_def.persona.role is None
+        assert prompt_def.persona.goal is None
+        assert prompt_def.persona.backstory is None
 
     def test_default_persona(self):
-        """Test that persona defaults to empty PersonaConfig."""
-        config = AgentConfig(
-            task=TaskConfig(description="Task"),
+        """Test that persona defaults to empty PromptPersona."""
+        prompt_def = AgentPrompt(
+            task=PromptTask(description="Task"),
         )
-        assert config.persona is not None
-        assert config.persona.role is None
+        assert prompt_def.persona is not None
+        assert prompt_def.persona.role is None
 
 
 class MockPromptProvider(BasePromptProvider):
@@ -135,8 +137,8 @@ class MockPromptProvider(BasePromptProvider):
         return FetchedPrompt(
             name=name,
             version=str(version),
-            agent_config=AgentConfig(
-                task=TaskConfig(description=description, expected_output="output"),
+            agent_prompt=AgentPrompt(
+                task=PromptTask(description=description, expected_output="output"),
             ),
         )
 
@@ -153,7 +155,7 @@ class TestBasePromptProvider:
 
         assert isinstance(prompt, FetchedPrompt)
         assert prompt.name == "test-prompt"
-        assert prompt.agent_config is not None
+        assert prompt.agent_prompt is not None
         assert provider.fetch_count == 1
 
     @pytest.mark.asyncio
@@ -164,7 +166,7 @@ class TestBasePromptProvider:
         prompt = await provider.get_prompt("test-prompt", version="2")
 
         assert prompt.version == "2"
-        assert prompt.agent_config is not None
+        assert prompt.agent_prompt is not None
 
     @pytest.mark.asyncio
     async def test_get_prompt_with_variables(self):
@@ -178,8 +180,8 @@ class TestBasePromptProvider:
 
         assert prompt.name == "test-prompt"
         # Variables should be included in description
-        assert "cardiology" in prompt.agent_config.task.description
-        assert "John" in prompt.agent_config.task.description
+        assert "cardiology" in prompt.agent_prompt.task.description
+        assert "John" in prompt.agent_prompt.task.description
 
 
 class TestSingletonPattern:

@@ -8,11 +8,11 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Literal, Optional
 
-from echo.agents.config import AgentConfig
-from echo.agents.skill import Skill
 from echo.llm import LLMConfig, get_llm
 from echo.llm.schemas import StreamEvent, StreamEventType
+from echo.prompts.schemas import AgentPrompt
 from echo.prompts.templates import load_template
+from echo.skills import Skill
 from echo.tools.base_tool import BaseTool
 from echo.tools.skills import LoadSkillTool, UnloadSkillTool
 
@@ -51,7 +51,7 @@ class BaseAgent(ABC):
 
     def __init__(
         self,
-        agent_config: Optional[AgentConfig] = None,
+        agent_prompt: Optional[AgentPrompt] = None,
         llm_config: Optional[LLMConfig] = None,
         tools: Optional[List[BaseTool]] = None,
         skills: Optional[List[Skill]] = None,
@@ -59,9 +59,9 @@ class BaseAgent(ABC):
         base_tool_names: Optional[List[str]] = None,
     ):
         """
-        Agent Init with config, tools, and skills.
+        Agent Init with prompt, tools, and skills.
         Args:
-            agent_config: Persona + task configuration.
+            agent_prompt: Persona + task definition.
             llm_config: Optional LLM configuration. Defaults to Bedrock Haiku.
             tools: Registry of all tools the agent can use. Duplicate names are silently dropped.
             skills: Optional skill registry the agent can activate. A skill referenced tool
@@ -133,12 +133,12 @@ class BaseAgent(ABC):
                 n for n in self._tools_by_name if n not in _RESERVED_META_TOOL_NAMES
             ]
 
-        # Load config from YAML (both agent and task)
-        self.role = agent_config.persona.role
-        self.goal = agent_config.persona.goal
-        self.backstory = agent_config.persona.backstory
-        self.task_description = agent_config.task.description
-        self.expected_output = agent_config.task.expected_output
+        # Load persona + task from the agent's prompt definition
+        self.role = agent_prompt.persona.role
+        self.goal = agent_prompt.persona.goal
+        self.backstory = agent_prompt.persona.backstory
+        self.task_description = agent_prompt.task.description
+        self.expected_output = agent_prompt.task.expected_output
 
         # Set LLM config, defaults to Bedrock Haiku
         self.llm_config = llm_config or LLMConfig()

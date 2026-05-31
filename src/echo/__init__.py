@@ -6,7 +6,7 @@ Framework-agnostic design with adapters for CrewAI, LangGraph, and standalone us
 
 Key components:
 - Agents: Intent classification agents with to_crewai_agent() adapters
-- Config: Type-safe configuration with LLMConfig, AgentConfig, TaskConfig
+- Config: Type-safe configuration with LLMConfig, AgentPrompt, PromptTask
 - LLM: Unified LLM interface supporting Bedrock, OpenAI, Anthropic
 - Tools: Framework-agnostic tools with to_crewai_tool() adapters
 """

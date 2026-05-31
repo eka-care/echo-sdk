@@ -57,9 +57,9 @@ class AgUiAgent(BaseAgent):
     """AG-UI capable agent with all GenericAgent capabilities."""
 
     def __init__(self, **kwargs) -> None:
-        if not kwargs.get("agent_config"):
-            logger.error("Agent Config Mandatory for ag_ui agent")
-            raise Exception("Agent Config Mandatory for ag_ui agent")
+        if not kwargs.get("agent_prompt"):
+            logger.error("agent_prompt is mandatory for ag_ui agent")
+            raise Exception("agent_prompt is mandatory for ag_ui agent")
         super().__init__(**kwargs)
 
     @property

@@ -32,7 +32,7 @@ import asyncio
 from typing import Any, Dict
 
 from echo.agents import GenericAgent, Skill
-from echo.agents.config import AgentConfig, PersonaConfig, TaskConfig
+from echo.prompts.schemas import AgentPrompt, PromptPersona, PromptTask
 from echo.tools.base_tool import BaseTool
 
 
@@ -113,13 +113,13 @@ def build_lab_skill() -> Skill:
 
 # --- Agent setup (shared) ---
 
-AGENT_CONFIG = AgentConfig(
-    persona=PersonaConfig(
+AGENT_CONFIG = AgentPrompt(
+    persona=PromptPersona(
         role="hospital assistant",
         goal="Help patients accomplish their booking task.",
         backstory="You are an assistant for a multi-specialty hospital chain.",
     ),
-    task=TaskConfig(
+    task=PromptTask(
         description=(
             "Greet the user, identify their intent, and use the right skill to "
             "complete their task."
@@ -144,7 +144,7 @@ async def demo_llm_mode() -> None:
     print("=" * 70)
 
     agent = GenericAgent(
-        agent_config=AGENT_CONFIG,
+        agent_prompt=AGENT_CONFIG,
         tools=build_tools(),
         skills=[build_doctor_skill(), build_lab_skill()],
         # Nothing is visible by default — every tool is skill-gated.
@@ -203,7 +203,7 @@ async def demo_manual_mode() -> None:
     print("=" * 70)
 
     agent = GenericAgent(
-        agent_config=AGENT_CONFIG,
+        agent_prompt=AGENT_CONFIG,
         tools=build_tools(),
         skills=[build_doctor_skill(), build_lab_skill()],
         base_tool_names=[],

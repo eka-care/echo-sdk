@@ -23,9 +23,9 @@ class GenericAgent(BaseAgent):
     """
 
     def __init__(self, **kwargs) -> None:
-        if not kwargs.get("agent_config"):
-            logger.error("Agent Config Mandatory for generic agent")
-            raise Exception("Agent Config Mandatory for generic agent")
+        if not kwargs.get("agent_prompt"):
+            logger.error("agent_prompt is mandatory for generic agent")
+            raise Exception("agent_prompt is mandatory for generic agent")
         super().__init__(**kwargs)
 
     @property

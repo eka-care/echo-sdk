@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 # Load .env file from project root
 load_dotenv()
 
-from echo.agents.config import AgentConfig, PersonaConfig, TaskConfig
+from echo.prompts.schemas import AgentPrompt, PromptPersona, PromptTask
 from echo.prompts import PromptFetchError, get_prompt_provider
 from echo.evals import get_eval_provider
 from echo.agents.generic_agent import GenericAgent
@@ -51,13 +51,13 @@ llm_config = LLMConfig(
 )
 
 async def run_agent_eval():
-    """Demonstrate using ready-to-use AgentConfig from a prompt."""
-    print(f"{br()}Using AgentConfig from Prompt{br()}")
+    """Demonstrate using ready-to-use AgentPrompt from a prompt."""
+    print(f"{br()}Using AgentPrompt from Prompt{br()}")
 
     provider = get_prompt_provider()
 
     try:
-        # Fetch prompt with variables - AgentConfig is ready to use
+        # Fetch prompt with variables - AgentPrompt is ready to use
         prompt = await provider.get_prompt(
             prompt_name(),
             prompt_variables={"specialty": "cardiology"},
@@ -72,9 +72,9 @@ async def run_agent_eval():
         print(f"Configuration error: {e}")
         return
 
-    # Access the ready-to-use agent_config directly
+    # Access the ready-to-use agent_prompt directly
     agent = GenericAgent(
-        agent_config=prompt.agent_config,
+        agent_prompt=prompt.agent_prompt,
         llm_config=llm_config,
     )
 
