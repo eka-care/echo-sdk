@@ -18,9 +18,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from echo.agents.config import AgentConfig, PersonaConfig, TaskConfig
 from echo.agents.generic_agent import GenericAgent
-from echo.agents.skill import Skill
+from echo.prompts.schemas import AgentPrompt, PromptPersona, PromptTask
+from echo.skills import Skill
 from echo.tools.base_tool import BaseTool
 
 
@@ -42,14 +42,14 @@ class _StubTool(BaseTool):
         return None
 
 
-def _make_agent_config() -> AgentConfig:
-    return AgentConfig(
-        persona=PersonaConfig(
+def _make_agent_prompt() -> AgentPrompt:
+    return AgentPrompt(
+        persona=PromptPersona(
             role="test agent",
             goal="be useful",
             backstory="for tests",
         ),
-        task=TaskConfig(
+        task=PromptTask(
             description="do the test task",
             expected_output="something",
         ),
@@ -65,7 +65,7 @@ def patched_get_llm():
 
 def _new_agent(**kwargs) -> GenericAgent:
     """Construct a GenericAgent with a default config; pass kwargs to override."""
-    kwargs.setdefault("agent_config", _make_agent_config())
+    kwargs.setdefault("agent_prompt", _make_agent_prompt())
     return GenericAgent(**kwargs)
 
 

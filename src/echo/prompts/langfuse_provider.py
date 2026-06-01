@@ -4,9 +4,8 @@ import asyncio
 import os
 from typing import Any, Dict, Optional
 
-from echo.agents.config import AgentConfig, PersonaConfig, TaskConfig
-
 from .base import BasePromptProvider, FetchedPrompt, PromptFetchError
+from .schemas import AgentPrompt, PromptPersona, PromptTask
 
 
 class LangfusePromptProvider(BasePromptProvider):
@@ -48,7 +47,7 @@ class LangfusePromptProvider(BasePromptProvider):
         prompt_variables: Optional[Dict[str, Any]] = None,
     ) -> FetchedPrompt:
         """
-        Fetch prompt from Langfuse and return ready-to-use AgentConfig.
+        Fetch prompt from Langfuse and return ready-to-use AgentPrompt.
 
         Args:
             name: Prompt name in Langfuse
@@ -56,7 +55,7 @@ class LangfusePromptProvider(BasePromptProvider):
             **variables: Variables to compile the prompt with
 
         Returns:
-            FetchedPrompt with agent_config ready to use
+            FetchedPrompt with agent_prompt ready to use
 
         Raises:
             PromptFetchError: If fetch fails
@@ -80,13 +79,13 @@ class LangfusePromptProvider(BasePromptProvider):
             # Extract config fields (provider-specific logic stays HERE)
             config = getattr(langfuse_prompt, "config", {}) or {}
 
-            agent_config = AgentConfig(
-                persona=PersonaConfig(
+            agent_prompt = AgentPrompt(
+                persona=PromptPersona(
                     role=config.get("role"),
                     goal=config.get("goal"),
                     backstory=config.get("backstory"),
                 ),
-                task=TaskConfig(
+                task=PromptTask(
                     description=task_description,
                     expected_output=config.get("expected_output"),
                 ),
@@ -95,7 +94,7 @@ class LangfusePromptProvider(BasePromptProvider):
             return FetchedPrompt(
                 name=name,
                 version=str(getattr(langfuse_prompt, "version", "")) or None,
-                agent_config=agent_config,
+                agent_prompt=agent_prompt,
             )
 
         except Exception as e:

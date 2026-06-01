@@ -4,7 +4,7 @@ Example: Using the Prompt Management System.
 This demonstrates:
 - Fetching prompts from Langfuse with variables compiled at fetch time
 - Using version-specific prompts
-- Accessing ready-to-use AgentConfig from prompts
+- Accessing ready-to-use AgentPrompt from prompts
 
 Prerequisites:
 - Install langfuse: pip install 'echo[langfuse]'
@@ -57,7 +57,7 @@ async def fetch_prompts():
             prompt_variables={"specialty": "cardiology"},
         )
         print("Compiled task description:")
-        print(prompt_with_vars.agent_config.task.description)
+        print(prompt_with_vars.agent_prompt.task.description)
 
     except PromptFetchError as e:
         print(f"Failed to fetch: {e}")
@@ -65,25 +65,25 @@ async def fetch_prompts():
         print(f"Configuration error: {e}")
 
 
-async def create_agent_config_from_prompt():
-    """Demonstrate using ready-to-use AgentConfig from a prompt."""
-    print(f"{br()}Using AgentConfig from Prompt{br()}")
+async def create_agent_prompt_from_prompt():
+    """Demonstrate using ready-to-use AgentPrompt from a prompt."""
+    print(f"{br()}Using AgentPrompt from Prompt{br()}")
 
     provider = get_prompt_provider()
 
     try:
-        # Fetch prompt with variables - AgentConfig is ready to use
+        # Fetch prompt with variables - AgentPrompt is ready to use
         prompt = await provider.get_prompt(
             prompt_name(),
             version='3',
             prompt_variables={"specialty": "cardiology"},
         )
 
-        # Access the ready-to-use agent_config directly
-        config = prompt.agent_config
+        # Access the ready-to-use agent_prompt directly
+        config = prompt.agent_prompt
 
         print(f"Using prompt: {prompt.name} v{prompt.version}")
-        print("AgentConfig:")
+        print("AgentPrompt:")
         print(config.model_dump_json(indent=2))
 
     except PromptFetchError:
@@ -99,7 +99,7 @@ async def main():
 
     examples = [
         ("1", "Version-specific fetching", fetch_prompts),
-        ("2", "Create AgentConfig from prompt", create_agent_config_from_prompt),
+        ("2", "Create AgentPrompt from prompt", create_agent_prompt_from_prompt),
         ("3", "Run all examples", None),
     ]
 

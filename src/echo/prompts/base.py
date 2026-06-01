@@ -5,15 +5,15 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel
 
-from echo.agents.config import AgentConfig
+from .schemas import AgentPrompt
 
 
 class FetchedPrompt(BaseModel):
-    """Prompt with ready-to-use AgentConfig."""
+    """Prompt with ready-to-use AgentPrompt."""
 
     name: str
     version: Optional[str] = None
-    agent_config: AgentConfig  # Ready to use, already compiled
+    agent_prompt: AgentPrompt  # Ready to use, already compiled
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -36,7 +36,7 @@ class BasePromptProvider(ABC):
         **kwargs: Any,
     ) -> FetchedPrompt:
         """
-        Fetch prompt from provider and return ready-to-use AgentConfig.
+        Fetch prompt from provider and return ready-to-use AgentPrompt.
 
         Args:
             name: Prompt name/identifier
@@ -44,7 +44,7 @@ class BasePromptProvider(ABC):
             **variables: Variables to compile the prompt with
 
         Returns:
-            FetchedPrompt with agent_config ready to use
+            FetchedPrompt with agent_prompt ready to use
 
         Raises:
             PromptFetchError: If fetch fails

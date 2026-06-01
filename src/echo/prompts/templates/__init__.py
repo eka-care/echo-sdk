@@ -1,6 +1,6 @@
 """Static prompt templates bundled with the SDK.
 
-Unlike `BasePromptProvider` (which fetches dynamic AgentConfigs from external
+Unlike `BasePromptProvider` (which fetches dynamic AgentPrompts from external
 providers like Langfuse), templates here are framework-internal text fragments
 loaded synchronously from YAML files co-located in this package.
 """

@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 # Load .env file from project root
 load_dotenv()
 
-from echo.agents.config import AgentConfig, PersonaConfig, TaskConfig
+from echo.prompts.schemas import AgentPrompt, PromptPersona, PromptTask
 from echo.agents.generic_agent import GenericAgent
 from echo.llm import LLMConfig
 from echo.models.user_conversation import (
@@ -49,13 +49,13 @@ MCP_SERVERS = [
 # )
 
 # Agent configuration
-AGENT_CONFIG = AgentConfig(
-    persona=PersonaConfig(
+AGENT_CONFIG = AgentPrompt(
+    persona=PromptPersona(
         role="Medical Assistant chatbot called Ekabot",
         goal="Help users with medical queries using available tools. Use tools when appropriate to provide accurate information.",
         backstory="You are a helpful medical assistant with access to various tools to look up information and assist users.",
     ),
-    task=TaskConfig(
+    task=PromptTask(
         description="You are a helpful medical assistant with access to various tools to look up information and assist users.",
         expected_output="A helpful response that addresses the user's query, using tool results when appropriate.",
     ),
@@ -118,7 +118,7 @@ async def run_conversation():
 
     # Create agent with all MCP tools
     agent = GenericAgent(
-        agent_config=AGENT_CONFIG,
+        agent_prompt=AGENT_CONFIG,
         tools=all_tools,
         llm_config=LLMConfig(),
     )

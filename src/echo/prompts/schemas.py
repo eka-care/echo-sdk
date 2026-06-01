@@ -1,0 +1,53 @@
+"""Prompt schemas for Echo SDK.
+
+Pydantic models describing an agent's prompt (persona + task) and the
+descriptor used to fetch a prompt from a provider.
+"""
+
+from __future__ import annotations
+
+from typing import Literal, Optional
+
+from pydantic import BaseModel, Field, model_validator
+
+
+class PromptPersona(BaseModel):
+    """Agent persona (role / goal / backstory)."""
+
+    role: Optional[str] = None
+    goal: Optional[str] = None
+    backstory: Optional[str] = None
+
+
+class PromptTask(BaseModel):
+    """Task description and expected output."""
+
+    description: str
+    expected_output: Optional[str] = None
+
+
+class AgentPrompt(BaseModel):
+    """Combined persona + task — what the agent should be and do.
+
+    Previously named ``AgentConfig``; renamed because it describes the
+    prompt (persona + task), not runtime configuration of the agent.
+    """
+
+    persona: PromptPersona = PromptPersona()
+    task: PromptTask
+
+
+class PromptConfig(BaseModel):
+    """Descriptor for fetching a prompt from a provider."""
+
+    provider: Literal["langfuse"] = "langfuse"
+    name: str = Field(..., description="The name of the prompt")
+    prompt_variables: Optional[dict[str, str]] = None
+    version: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def strip_name(cls, data):
+        if isinstance(data, dict) and data.get("name"):
+            data["name"] = data["name"].strip()
+        return data
