@@ -92,11 +92,12 @@ agents/         → skills, databases, tools, llm
   - `ElicitationResponse` exposes `control_flow`/`observability` as **read-only properties** returning PAUSE/VISIBLE — fixed, non-overridable (not fields). Loop reads both objects uniformly by duck-typing `.control_flow`/`.observability`.
 - No loop / tool-type / `invoke_tool` behavior change. Verified: defaults, settability, persistence exclusion, elicitation fixedness; full suite 112 passed / 12 pre-existing.
 
-## Step 2 — Tool types adopt directives
-- `BaseTool`: default `CONTINUE`/`VISIBLE`; can set observability + `PAUSE`; **no path to `INTERRUPT`**.
-- `BaseElicitationTool`: always `ElicitationResponse` (PAUSE/VISIBLE fixed).
-- `SystemTool`: `__init_subclass__` guard; may stamp `INTERRUPT`, choose observability.
-- `MCPTool.run()`: response→directive mapping (elicit ⇒ `ElicitationResponse`, else default `ToolResult`).
+## Step 2 — Tool types adopt directives — ✅ DONE
+- **`BaseTool`** declares defaults as class attrs: `control_flow = CONTINUE`, `observability = VISIBLE`.
+- **`invoke_tool` boundary** (`llm/base.py`) stamps them onto the `ToolResult`: `observability` from any tool; `control_flow` **only if `isinstance(tool, SystemTool)`** — else coerced to `CONTINUE` + warning. This is the real enforcement of "only system tools INTERRUPT" (robust: `SystemTool` is unfakeable via the `__init_subclass__` guard). One `isinstance` at the boundary, not the loop.
+- **`SystemTool`**: no new attrs; concrete system tools override `control_flow`/`observability` (Step 5). Docstring documents this.
+- **`BaseElicitationTool` / `MCPTool`**: unchanged — elicitation routes to `ElicitationResponse` (fixed PAUSE) via existing `is_elicitation`/`ElicitationDetails` paths.
+- **Behavior-neutral:** no tool declares non-defaults yet and the loop doesn't read `control_flow` until Step 3. Verified: normal→CONTINUE/VISIBLE, non-system INTERRUPT→coerced+warned, real SystemTool→INTERRUPT/SILENT honored; suite 112/12.
 
 ## Step 3 — Provider inner loop reads directive (`llm/`)
 - `anthropic.py` first: replace `isinstance(tool_res, ElicitationResponse)` with `result.control_flow`. Break on `PAUSE`/`INTERRUPT` **after** appending tool-results message (valid re-entry). Use `observability` to gate `TOOL_CALL_*` events (replaces `is_elicitation` skips). Surface outcome via `LLMResponse` (`pending_context_reload` for INTERRUPT; existing `elicitations` for PAUSE).
