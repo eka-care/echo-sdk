@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel
 
 from echo.models.user_conversation import ConversationContext
-from echo.tools.schemas import ElicitationResponse
+from echo.tools.core.schemas import ElicitationResponse
 
 
 class VerboseResponseItem(BaseModel):

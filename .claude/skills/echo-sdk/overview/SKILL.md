@@ -13,15 +13,26 @@ Echo is a framework-agnostic Python SDK for LLM agents. Multi-provider, async-fi
 |--------|-------------------|-------|---------|
 | `agents/` | `from echo.agents import BaseAgent, GenericAgent, Skill, AgentConfig` | `echo-sdk/agents` | `agent-skill-lifecycle.md` |
 | `llm/` | `from echo.llm import get_llm, LLMConfig, LLMResponse, StreamEvent` | `echo-sdk/llm` | `llm-invoke-flow.md` |
-| `tools/` | `from echo.tools import BaseTool, MCPConnectionManager, MCPTool, PgQueryTool` | `echo-sdk/tools` | `tools-mcp-connection.md` |
+| `tools/` | `from echo.tools import BaseTool, BaseElicitationTool, MCPConnectionManager, MCPTool` (framework only; see layout note below) | `echo-sdk/tools` | `tools-mcp-connection.md` |
 | `models/` | `from echo.models import ConversationContext, Message, ToolCall, ToolResult` | `echo-sdk/models` | `conversation-context-er.md` |
 | `prompts/` | `from echo.prompts import get_prompt_provider, FetchedPrompt` | `echo-sdk/prompts` | — |
 | `evals/` | `from echo.evals import get_eval_provider` | `echo-sdk/evals` | — |
 | `audio/` | `from echo.audio import get_transcriber, AudioInput` | `echo-sdk/audio` | — |
-| `databases/` | `from echo.tools import PgQueryTool` (or `echo.databases.postgres.*`) | `echo-sdk/databases` | — |
+| `databases/` | `from echo.databases.postgres import PgQueryTool, PostgresClient` | `echo-sdk/databases` | — |
 | `utils/` | helpers; minimal | — | — |
 
 For the big picture: `.claude/diagrams/architecture-overview.md` and `.claude/diagrams/data-flow-end-to-end.md`.
+
+### Tool layout: framework vs domain tools
+
+`tools/` holds the tool **framework** only — base types and generic infra:
+`core/` (directive enums + shared schemas, the dependency root), `base_tool.py`,
+`base_elicitation_tool.py`, `system/` (`SystemTool`, echo-internal, not re-exported),
+`mcp/`. Concrete **domain** tools live with their domain and import the framework:
+`LoadSkillTool`/`UnloadSkillTool` → `echo.skills`; `PgQueryTool` →
+`echo.databases.postgres`. **Rule:** `tools/__init__` exports framework only and
+never imports `skills`/`databases`, so the dependency graph stays acyclic
+(everything points inward to `tools/core`).
 
 ## Decision tree
 

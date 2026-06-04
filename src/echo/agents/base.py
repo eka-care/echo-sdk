@@ -12,9 +12,8 @@ from echo.llm import LLMConfig, get_llm
 from echo.llm.schemas import StreamEvent, StreamEventType
 from echo.prompts.schemas import AgentPrompt
 from echo.prompts.templates import load_template
-from echo.skills import Skill
+from echo.skills import LoadSkillTool, Skill, UnloadSkillTool
 from echo.tools.base_tool import BaseTool
-from echo.tools.skills import LoadSkillTool, UnloadSkillTool
 
 from .schemas import AgentResult
 
@@ -183,6 +182,7 @@ class BaseAgent(ABC):
             return
         self._active_skill_names[name] = None
         await skill.on_activate(context)
+        logger.info(f"Activated skill {name!r}")
 
     async def deactivate_skill(
         self,
@@ -199,6 +199,7 @@ class BaseAgent(ABC):
         self._active_skill_names.pop(name, None)
         if skill is not None:
             await skill.on_deactivate(context)
+            logger.info(f"Deactivated skill {name!r}")
 
     def active_skill_names(self) -> List[str]:
         """Return the names of currently-active skills (in activation order)."""

@@ -1,40 +1,24 @@
-"""Postgres client for Echo SDK.
+"""Postgres client + query tool for Echo SDK.
 
 Requires the `postgres` extra: `pip install echo[postgres]`.
-"""
 
-from typing import Optional
+Holds both the Postgres infrastructure (client/config/binder) and the
+domain tool that exposes it to an LLM (`PgQueryTool`). The tool lives with
+its resource rather than under `tools/`, and imports the tool framework
+from `echo.tools` — keeping the dependency direction one-way
+(databases → tools).
+"""
 
 from .binder import bind_named
 from .client import PostgresClient
 from .config import PostgresConfig
-
-_default_client: Optional[PostgresClient] = None
-
-
-def set_default_client(client: PostgresClient) -> None:
-    """Register a process-wide default `PostgresClient`.
-
-    Tools constructed without an explicit client (e.g. via `tool_class()`
-    at dynamic-loader time) resolve to this instance at runtime.
-    """
-    global _default_client
-    _default_client = client
-
-
-def get_default_client() -> PostgresClient:
-    """Return the registered default client; raise if none was set."""
-    if _default_client is None:
-        raise RuntimeError(
-            "No default PostgresClient registered. "
-            "Call echo.databases.postgres.set_default_client(...) at startup."
-        )
-    return _default_client
-
+from .pg_query_tool import PgQueryTool
+from .registry import get_default_client, set_default_client
 
 __all__ = [
     "PostgresClient",
     "PostgresConfig",
+    "PgQueryTool",
     "bind_named",
     "set_default_client",
     "get_default_client",

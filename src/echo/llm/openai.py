@@ -17,7 +17,7 @@ from echo.models.user_conversation import (
     ToolCall,
 )
 from echo.tools.base_tool import BaseTool
-from echo.tools.schemas import ElicitationResponse
+from echo.tools.core.schemas import ElicitationResponse
 
 from .base import BaseLLM
 from .config import LLMConfig

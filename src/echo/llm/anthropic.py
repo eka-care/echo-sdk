@@ -17,7 +17,7 @@ from echo.models.user_conversation import (
     ToolCall,
 )
 from echo.tools.base_tool import BaseTool
-from echo.tools.schemas import ElicitationResponse
+from echo.tools.core.schemas import ElicitationResponse
 
 from .base import BaseLLM
 from .config import LLMConfig
@@ -32,7 +32,9 @@ class AnthropicLLM(BaseLLM):
     def __init__(self, config: LLMConfig):
         super().__init__(config)
         self._client = None
-        self.thinking_budget_tokens = config.thinking.budget_tokens if config.thinking else None
+        self.thinking_budget_tokens = (
+            config.thinking.budget_tokens if config.thinking else None
+        )
 
     @property
     def client(self):

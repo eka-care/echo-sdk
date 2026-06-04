@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from echo.tools.databases import PgQueryTool
+from echo.databases.postgres import PgQueryTool
 
 
 @pytest.fixture

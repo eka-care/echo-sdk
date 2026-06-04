@@ -32,3 +32,11 @@ src/echo/
 ```
 
 Public API per module is in its `__init__.py` — read that first when extending.
+
+**Tool framework vs domain tools.** `tools/` holds the framework only — `core/`
+(directive enums + shared schemas; the dependency root), `base_tool.py`,
+`base_elicitation_tool.py`, `system/` (`SystemTool`, echo-internal, not
+re-exported), `mcp/`. Concrete domain tools live with their domain and import
+the framework: skill meta-tools → `echo.skills`, `PgQueryTool` →
+`echo.databases.postgres`. `tools/__init__` never imports `skills`/`databases`
+(keeps the dependency graph acyclic — everything points inward to `tools/core`).
