@@ -13,7 +13,7 @@ Echo is a framework-agnostic Python SDK for LLM agents. Multi-provider, async-fi
 |--------|-------------------|-------|---------|
 | `agents/` | `from echo.agents import BaseAgent, GenericAgent, Skill, AgentConfig` | `echo-sdk/agents` | `agent-skill-lifecycle.md` |
 | `llm/` | `from echo.llm import get_llm, LLMConfig, LLMResponse, StreamEvent` | `echo-sdk/llm` | `llm-invoke-flow.md` |
-| `tools/` | `from echo.tools import BaseTool, BaseElicitationTool, MCPConnectionManager, MCPTool` (framework only; see layout note below) | `echo-sdk/tools` | `tools-mcp-connection.md` |
+| `tools/` | import per subpackage: `from echo.tools.core import BaseTool, ElicitationResponse`; `from echo.tools.mcp import MCPTool, MCPConnectionManager`; `from echo.tools.elicitation import BaseElicitationTool` (see layout note) | `echo-sdk/tools` | `tools-mcp-connection.md` |
 | `models/` | `from echo.models import ConversationContext, Message, ToolCall, ToolResult` | `echo-sdk/models` | `conversation-context-er.md` |
 | `prompts/` | `from echo.prompts import get_prompt_provider, FetchedPrompt` | `echo-sdk/prompts` | — |
 | `evals/` | `from echo.evals import get_eval_provider` | `echo-sdk/evals` | — |
@@ -25,14 +25,26 @@ For the big picture: `.claude/diagrams/architecture-overview.md` and `.claude/di
 
 ### Tool layout: framework vs domain tools
 
-`tools/` holds the tool **framework** only — base types and generic infra:
-`core/` (directive enums + shared schemas, the dependency root), `base_tool.py`,
-`base_elicitation_tool.py`, `system/` (`SystemTool`, echo-internal, not re-exported),
-`mcp/`. Concrete **domain** tools live with their domain and import the framework:
-`LoadSkillTool`/`UnloadSkillTool` → `echo.skills`; `PgQueryTool` →
-`echo.databases.postgres`. **Rule:** `tools/__init__` exports framework only and
-never imports `skills`/`databases`, so the dependency graph stays acyclic
-(everything points inward to `tools/core`).
+`tools/` holds the tool **framework** only, organized into a foundation + categories:
+
+- `core/` — the foundation: `BaseTool` (universal contract) + shared schemas
+  (directive/result types, elicitation payloads, `ToolOutput`). Dependency root;
+  imports nothing else from `echo`.
+- `elicitation/` — `BaseElicitationTool` category (PAUSE/VISIBLE fixed).
+- `mcp/` — `MCPTool`, `MCPConnectionManager`, and MCP-private schemas
+  (`MCPServerConfig`, errors, transport). Pulls optional `mcp`/`httpx`.
+- `system/` — `SystemTool` (echo-internal, `__init_subclass__`-guarded, not re-exported).
+
+Concrete **domain** tools live with their domain and import the framework:
+`LoadSkillTool`/`UnloadSkillTool` → `echo.skills`; `PgQueryTool` → `echo.databases.postgres`.
+
+**Import policy (tools/):** each subpackage owns and exposes its own public API;
+the top-level `tools/__init__` does NOT re-aggregate them — import from the owning
+subpackage (`echo.tools.core`, `.mcp`, `.elicitation`, `.system`). The sole top-level
+convenience re-export is `BaseTool`. This keeps `import echo.tools` lean and avoids
+dragging the optional `mcp`/`httpx` deps. Schemas follow the **lowest-common-ancestor**
+rule: cross-category types live in `core`, category-private types in their category
+(`mcp/schemas.py`). `tools/__init__` never imports `skills`/`databases` — graph stays acyclic.
 
 ## Decision tree
 

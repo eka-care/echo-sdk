@@ -25,7 +25,7 @@ from echo.models.user_conversation import (
     MessageRole,
     TextMessage,
 )
-from echo.tools import MCPConnectionManager, MCPServerConfig, MCPTransport
+from echo.tools.mcp import MCPConnectionManager, MCPServerConfig, MCPTransport
 
 # MCP Server configurations
 print(os.getenv("EK_JWT_PAYLOAD"))

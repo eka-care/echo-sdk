@@ -36,19 +36,20 @@
 
 ```
 src/echo/
-  tools/                       ← FRAMEWORK ONLY
-    core/
-      schemas.py               ← shared: directive enums, shared result base,
-                                 ElicitationDetails/Status/Component, MCPServerConfig, errors
-      constants.py
-    base_tool.py               ← BaseTool (defaults CONTINUE/VISIBLE)        → core
-    base_elicitation_tool.py   ← BaseElicitationTool (PAUSE/VISIBLE fixed)    → base_tool, core
-    system/
-      system_tool.py           ← SystemTool base + __init_subclass__ guard   → base_tool, core
-    mcp/
-      mcp_tool.py              ← MCPTool (runtime: elicit→PAUSE else default) → base_tool, core
-      connection_manager.py    ← MCPConnectionManager                        → mcp_tool, core
-    __init__.py                ← exports FRAMEWORK only; never imports skills/ or databases/
+  tools/                       ← FRAMEWORK ONLY (foundation + categories)
+    core/                      ← FOUNDATION (dependency root; imports nothing else from echo)
+      base_tool.py             ← BaseTool (universal contract; defaults CONTINUE/VISIBLE)
+      schemas.py               ← shared: directive/result base, Elicitation* payloads, ToolOutput
+      __init__.py              ← exports BaseTool + shared schemas
+    elicitation/               ← CATEGORY
+      base_elicitation_tool.py ← BaseElicitationTool (PAUSE/VISIBLE fixed)    → core
+    mcp/                       ← CATEGORY (pulls optional mcp/httpx)
+      mcp_tool.py              ← MCPTool (runtime: elicit→PAUSE else default) → core, .schemas
+      connection_manager.py    ← MCPConnectionManager                        → .mcp_tool, .schemas
+      schemas.py               ← MCP-private: MCPServerConfig, errors, transport
+    system/                    ← CATEGORY (echo-internal)
+      system_tool.py           ← SystemTool + __init_subclass__ guard         → core
+    __init__.py                ← re-exports ONLY BaseTool (convenience); no re-aggregation
 
   skills/                      ← SKILL DOMAIN
     skill.py, runtime.py
@@ -56,34 +57,33 @@ src/echo/
 
   databases/                   ← DATABASE DOMAIN (resource + its tool)
     postgres/
-      config.py, client.py, binder.py
-      pg_query_tool.py         ← PgQueryTool(BaseTool)                        → tools/base_tool, tools/core, sibling client
+      config.py, client.py, binder.py, registry.py
+      pg_query_tool.py         ← PgQueryTool(BaseTool)                        → tools/core, sibling client
 ```
 
 ### Dependency direction — one-way, no cycles
 ```
 tools/core      → (nothing internal)          ROOT
-tools/base_tool → core
-tools/{system, mcp, base_elicitation} → base_tool, core
+tools/{elicitation, mcp, system} → core
 skills/         → tools/system, tools/core
-databases/postgres → tools/base_tool, tools/core
+databases/postgres → tools/core
 agents/         → skills, databases, tools, llm
 ```
-**The rule that prevents a cycle:** `tools/__init__` exports only the framework and **never imports a domain** (`skills`, `databases`). Each domain exports its own tools.
+**Import policy (tools/):** each subpackage owns its public API; `tools/__init__` does NOT re-aggregate — import from `echo.tools.core` / `.mcp` / `.elicitation` / `.system`. Only `BaseTool` is re-exported at top level. Keeps `import echo.tools` lean and free of optional `mcp`/`httpx`. Schemas follow **lowest-common-ancestor** (cross-category → `core`; category-private → its category). `tools/__init__` never imports `skills`/`databases` → acyclic.
 
 ---
 
-## Step 0 — Restructure `tools/` (pure relocation, NO behavior change; land & verify alone)
-- Move `schemas.py` → `tools/core/schemas.py`; add `tools/core/constants.py`.
-- Rename `base_elicitation.py` → `base_elicitation_tool.py`.
-- Move `mcp_tool.py` → `tools/mcp/mcp_tool.py`, `mcp_connection_manager.py` → `tools/mcp/connection_manager.py`.
-- Add `tools/system/system_tool.py` (SystemTool + `__init_subclass__` guard — defined here, adopted in later steps).
-- Move `tools/databases/pg_query_tool.py` → `databases/postgres/pg_query_tool.py`; export from `echo.databases`. Delete `tools/databases/`.
-- Move `tools/skills/meta_tools.py` → `skills/meta_tools.py`. Delete `tools/skills/`.
-- `tools/__init__` re-exports framework only (BaseTool, BaseElicitationTool, MCPTool, MCPConnectionManager, ElicitationResponse, ElicitationDetails, MCPServerConfig, directive enums once added).
-- **Importer updates:** `agents/base.py:17` (`echo.tools.skills`→`echo.skills`); `matrix/med_assist` (`echo.tools.mcp_tool`, `echo.tools.mcp_connection_manager`, `echo.tools.schemas` → new paths or `echo.tools` re-exports). Keep `from echo.tools import MCPTool/MCPConnectionManager/ElicitationResponse/MCPServerConfig` working.
-- **Docs:** `echo-sdk/overview` skill module-map + `CLAUDE.md` layout section.
-- ✅ Verify: import smoke + existing tests green before any behavior change.
+## Step 0 — Restructure `tools/` (pure relocation, NO behavior change) — ✅ DONE
+- `schemas.py` split: shared → `tools/core/schemas.py`, MCP-private → `tools/mcp/schemas.py`.
+- `base_tool.py` → `tools/core/base_tool.py`; `base_elicitation.py` → `tools/elicitation/base_elicitation_tool.py`.
+- `mcp_tool.py` → `tools/mcp/mcp_tool.py`, `mcp_connection_manager.py` → `tools/mcp/connection_manager.py`.
+- Added `tools/system/system_tool.py` (SystemTool + `__init_subclass__` guard; adopted in later steps).
+- `tools/databases/pg_query_tool.py` → `databases/postgres/pg_query_tool.py`; default-client registry extracted to `databases/postgres/registry.py` (breaks cycle). Public path: `echo.databases.postgres`.
+- `tools/skills/meta_tools.py` → `skills/meta_tools.py` (exported from `echo.skills`).
+- **Lean `__init__` policy applied to tools/:** subpackages own their exports; `tools/__init__` re-exports only `BaseTool`. Import from `echo.tools.core` / `.mcp` / `.elicitation` / `.system`.
+- **Importers updated:** echo-sdk src/tests/examples + all `matrix/med_assist` files (BaseTool via `echo.tools`; MCP names via `echo.tools.mcp`; elicitation via `echo.tools.core`).
+- **Docs:** `echo-sdk/overview` skill + `CLAUDE.md` layout/import-policy notes.
+- ✅ Verified: import smoke + `import echo` no longer drags optional `mcp`/`httpx`; SystemTool guard rejects external subclasses; full suite 112 passed / 12 pre-existing failures (proven unrelated via stash test).
 
 ## Step 1 — Directives in `core/`
 - `ControlFlow` (`CONTINUE`, `INTERRUPT`, `PAUSE`; room for `STOP`) + `Observability` (`VISIBLE`, `SILENT`) enums.

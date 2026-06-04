@@ -8,8 +8,9 @@ enabling seamless use with all LLM providers and framework adapters.
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from ..base_tool import BaseTool
-from ..core.schemas import ElicitationDetails, MCPExecutionError
+from ..core.base_tool import BaseTool
+from ..core.schemas import ElicitationDetails
+from .schemas import MCPExecutionError
 
 logger = logging.getLogger(__name__)
 

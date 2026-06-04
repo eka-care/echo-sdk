@@ -9,8 +9,8 @@ import logging
 from abc import abstractmethod
 from typing import Any, Dict, List, Optional
 
-from .base_tool import BaseTool
-from .core.schemas import ElicitationComponent, ElicitationDetails, ElicitationStatus
+from ..core.base_tool import BaseTool
+from ..core.schemas import ElicitationComponent, ElicitationDetails, ElicitationStatus
 
 logger = logging.getLogger(__name__)
 

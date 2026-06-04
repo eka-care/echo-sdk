@@ -5,7 +5,7 @@ Provides a framework-agnostic interface for tools with adapters.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 class BaseTool(ABC):
@@ -105,7 +105,9 @@ class BaseTool(ABC):
         "additional_properties",  # snake_case variant from some serializers
     }
 
-    def _flatten_schema(self, schema: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, Any]:
+    def _flatten_schema(
+        self, schema: Dict[str, Any], defs: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Recursively flatten a JSON schema by inlining $ref references
         and removing unsupported fields.

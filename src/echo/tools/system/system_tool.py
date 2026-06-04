@@ -15,7 +15,7 @@ Behavioral directives (control-flow, observability) are adopted in a later
 step; for now this defines the type and the extension boundary.
 """
 
-from echo.tools.base_tool import BaseTool
+from echo.tools.core import BaseTool
 
 
 class SystemTool(BaseTool):

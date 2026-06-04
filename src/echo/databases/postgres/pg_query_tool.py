@@ -4,7 +4,7 @@ import logging
 
 from typing import Any, Literal, Optional
 
-from echo.tools.base_tool import BaseTool
+from echo.tools.core import BaseTool
 
 from .client import PostgresClient
 from .registry import get_default_client

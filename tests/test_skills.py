@@ -21,7 +21,7 @@ import pytest
 from echo.agents.generic_agent import GenericAgent
 from echo.prompts.schemas import AgentPrompt, PromptPersona, PromptTask
 from echo.skills import Skill
-from echo.tools.base_tool import BaseTool
+from echo.tools.core import BaseTool
 
 
 # --- Test fixtures ---

@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from echo.models.user_conversation import ConversationContext, ToolCall, ToolResult
-from echo.tools.base_tool import BaseTool
+from echo.tools.core import BaseTool
 from echo.tools.core.schemas import ElicitationDetails, ElicitationResponse, ToolOutput
 
 from .config import LLMConfig

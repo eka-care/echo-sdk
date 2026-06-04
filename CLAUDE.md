@@ -33,10 +33,17 @@ src/echo/
 
 Public API per module is in its `__init__.py` — read that first when extending.
 
-**Tool framework vs domain tools.** `tools/` holds the framework only — `core/`
-(directive enums + shared schemas; the dependency root), `base_tool.py`,
-`base_elicitation_tool.py`, `system/` (`SystemTool`, echo-internal, not
-re-exported), `mcp/`. Concrete domain tools live with their domain and import
-the framework: skill meta-tools → `echo.skills`, `PgQueryTool` →
-`echo.databases.postgres`. `tools/__init__` never imports `skills`/`databases`
-(keeps the dependency graph acyclic — everything points inward to `tools/core`).
+**Tool framework vs domain tools.** `tools/` holds the framework only:
+`core/` (the foundation — `BaseTool` + shared schemas; dependency root),
+`elicitation/` (`BaseElicitationTool`), `mcp/` (`MCPTool`, connection manager,
+MCP-private schemas), `system/` (`SystemTool`, echo-internal, `__init_subclass__`-
+guarded). Concrete domain tools live with their domain: skill meta-tools →
+`echo.skills`, `PgQueryTool` → `echo.databases.postgres`.
+
+**Import policy (tools/).** Each subpackage owns its public API; the top-level
+`tools/__init__` does NOT re-aggregate — import from the owning subpackage
+(`echo.tools.core`, `.mcp`, `.elicitation`, `.system`). Only `BaseTool` is
+re-exported at top level for convenience. This keeps `import echo.tools` lean and
+free of the optional `mcp`/`httpx` deps. Schemas follow lowest-common-ancestor:
+cross-category → `core`, category-private → its category. `tools/__init__` never
+imports `skills`/`databases` (acyclic — everything points inward to `core`).

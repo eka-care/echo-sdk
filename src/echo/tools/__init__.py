@@ -1,43 +1,25 @@
 """Tool framework for Echo SDK.
 
-This package exposes the tool *framework* — base types, MCP infrastructure,
-and shared schemas. Concrete *domain* tools live with their domain and import
-this framework (one-way dependency):
+Import policy (tools/): each subpackage owns and exposes its own public API;
+this top-level package does NOT re-aggregate them. Import from the owning
+subpackage:
 
-- skill tools  → ``echo.skills``        (``LoadSkillTool``, ``UnloadSkillTool``)
-- postgres tool → ``echo.databases.postgres`` (``PgQueryTool``)
+- ``from echo.tools.core import BaseTool, ElicitationResponse, ...``
+- ``from echo.tools.elicitation import BaseElicitationTool``
+- ``from echo.tools.mcp import MCPTool, MCPConnectionManager, MCPServerConfig, ...``
+- ``from echo.tools.system import SystemTool``   (echo-internal)
 
-`tools/__init__` deliberately imports nothing from `skills` or `databases`,
-keeping the dependency graph acyclic.
+This keeps ``import echo.tools`` lean and dependency-light — notably it does
+NOT drag in the optional ``mcp``/``httpx`` deps that ``echo.tools.mcp`` needs.
+
+Concrete *domain* tools live with their domain, not here:
+- skill tools  → ``echo.skills``
+- postgres tool → ``echo.databases.postgres``
+
+The single exception to "no re-aggregation" is ``BaseTool`` — the one
+universal, dependency-free contract — re-exported here for convenience.
 """
 
-from .base_elicitation_tool import BaseElicitationTool
-from .base_tool import BaseTool
-from .core.schemas import (
-    ElicitationDetails,
-    ElicitationResponse,
-    ElicitationStatus,
-    MCPConfigError,
-    MCPConnectionError,
-    MCPError,
-    MCPExecutionError,
-    MCPServerConfig,
-    MCPTransport,
-)
-from .mcp import MCPConnectionManager, MCPTool
+from .core import BaseTool
 
-__all__ = [
-    "BaseElicitationTool",
-    "BaseTool",
-    "MCPConnectionManager",
-    "MCPServerConfig",
-    "MCPTransport",
-    "MCPTool",
-    "MCPError",
-    "MCPConfigError",
-    "MCPConnectionError",
-    "MCPExecutionError",
-    "ElicitationDetails",
-    "ElicitationStatus",
-    "ElicitationResponse",
-]
+__all__ = ["BaseTool"]

@@ -21,7 +21,7 @@ activation instead.
 
 from typing import TYPE_CHECKING, Any, Dict
 
-from echo.tools.base_tool import BaseTool
+from echo.tools.core import BaseTool
 
 if TYPE_CHECKING:
     from echo.agents.base import BaseAgent

@@ -1,34 +1,25 @@
-"""Core tool framework: shared schemas and constants.
+"""Core tool framework: the foundation every tool category builds on.
 
-This package is the dependency root of `tools/` — it imports nothing else
-from `echo`. Everything in `tools/` (and domain tools that extend the
-framework) points inward to here. Keep cross-module schemas (directive
-enums, elicitation details, server config, errors) in this package so no
-two sibling tool modules need to import each other.
+Holds the universal contract (`BaseTool`) and cross-category schemas
+(tool output, elicitation payloads). This package is the dependency root of
+`tools/` — it imports nothing else from `echo`. Tool categories
+(`elicitation`, `mcp`, `system`) and domain tools all point inward to here.
 """
 
+from .base_tool import BaseTool
 from .schemas import (
     ElicitationComponent,
     ElicitationDetails,
     ElicitationResponse,
     ElicitationStatus,
-    MCPConfigError,
-    MCPConnectionError,
-    MCPError,
-    MCPExecutionError,
-    MCPServerConfig,
-    MCPTransport,
+    ToolOutput,
 )
 
 __all__ = [
+    "BaseTool",
     "ElicitationComponent",
     "ElicitationDetails",
     "ElicitationResponse",
     "ElicitationStatus",
-    "MCPConfigError",
-    "MCPConnectionError",
-    "MCPError",
-    "MCPExecutionError",
-    "MCPServerConfig",
-    "MCPTransport",
+    "ToolOutput",
 ]

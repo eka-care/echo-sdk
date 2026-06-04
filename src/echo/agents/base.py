@@ -13,7 +13,7 @@ from echo.llm.schemas import StreamEvent, StreamEventType
 from echo.prompts.schemas import AgentPrompt
 from echo.prompts.templates import load_template
 from echo.skills import LoadSkillTool, Skill, UnloadSkillTool
-from echo.tools.base_tool import BaseTool
+from echo.tools.core import BaseTool
 
 from .schemas import AgentResult
 

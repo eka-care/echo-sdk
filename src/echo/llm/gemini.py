@@ -16,7 +16,7 @@ from echo.models.user_conversation import (
     ToolCall,
     ToolResult,
 )
-from echo.tools.base_tool import BaseTool
+from echo.tools.core import BaseTool
 from echo.tools.core.schemas import ElicitationResponse
 
 import orjson

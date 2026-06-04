@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from echo.tools.mcp import MCPConnectionManager
-from echo.tools.core.schemas import MCPExecutionError, MCPServerConfig, MCPTransport
+from echo.tools.mcp import MCPExecutionError, MCPServerConfig, MCPTransport
 
 
 def make_fake_session(tool_names: List[str] = None, call_result: Any = None):

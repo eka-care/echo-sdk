@@ -19,7 +19,7 @@ import httpx
 from mcp import ClientSession
 
 from .mcp_tool import MCPTool
-from ..core.schemas import (
+from .schemas import (
     MCPConfigError,
     MCPConnectionError,
     MCPExecutionError,
