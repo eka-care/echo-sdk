@@ -117,8 +117,18 @@ agents/         → skills, databases, tools, llm
 - Loop-originated policy (auto-summary on token threshold) slot reserved at the recompute site — not built.
 - Verified end-to-end (real GenericAgent + fake LLM): non-stream rerun recomputes and picks up a skill activated mid-turn (skill body absent in pass-1 prompt, present in pass-2); exhaustion caps at max+1 invokes with flag cleared; streaming swallows the intermediate DONE, emits one terminal DONE, streams both passes. Suite 112/12.
 
-## Step 5 — Skill meta-tools rebase
-- `LoadSkillTool`/`UnloadSkillTool` → subclass `SystemTool`, stamp `INTERRUPT` + (likely) `SILENT`. Live in `echo/skills/meta_tools.py`.
+## Step 5 — Skill meta-tools rebase — ✅ DONE (feature now active)
+- `LoadSkillTool`/`UnloadSkillTool` (`echo/skills/meta_tools.py`) now subclass `SystemTool` and declare `control_flow = INTERRUPT`, `observability = SILENT`. Descriptions/docstring updated: skills take effect *this turn* (recompute), not "subsequent turns".
+- This activates the whole chain: invoke_tool honors INTERRUPT (SystemTool) → provider sets `pending_context_reload` → agent recomputes prompt + tools and re-invokes.
+- Verified end-to-end (real `load_skill` through real Anthropic invoke loop + agent rerun): `load_skill('triage')` activates mid-turn; pass-1 tools `[load_skill, unload_skill]`, pass-2 tools `[load_skill, triage_query, unload_skill]` — the skill-gated tool became visible on recompute; continued same turn to final text. 2 invokes. Suite 112/12.
+
+---
+
+## ✅ Feature complete (Steps 0–5)
+Answers the original question — *"when a skill is activated, will it reach the LLM in the next loop iteration / will the prompt be recalculated?"* — **yes**: a skill loaded mid-turn now triggers a prompt + tool-list recompute and a re-invoke within the same turn. Generic and extensible: new loop-affecting tool categories (summary, computer-use) only need a `SystemTool` (or a result directive) — no core/loop edits.
+
+### Pre-existing, unrelated (not from this work)
+3 `test_skills.py` prompt-format assertions + provider-integration tests (need creds) were already failing before Step 0 (proven via stash). They test `_get_skill_content` string format (`**name**` vs `name`) — worth a separate fix.
 
 ---
 

@@ -6,7 +6,13 @@ skills are registered, the agent auto-injects a `load_skill` and an
 `unload_skill` tool into the per-turn tool list. These are how the LLM itself
 expresses "load this capability" / "unload this capability" — analogous to
 the way it picks any other tool, but with the side effect of changing the
-agent's active set on the next turn.
+agent's active set.
+
+They are `SystemTool`s declaring `control_flow = INTERRUPT`: changing the
+active skill set changes the agent's loaded state (system prompt + visible
+tools), so after the tool runs the agent recomputes the prompt + tool list and
+re-invokes within the SAME turn — making a just-loaded skill's instructions and
+tools usable immediately. They are `SILENT` (no generic TOOL_CALL_* events).
 
 Each instance is bound to a specific `BaseAgent`. They translate LLM tool
 calls into the agent's programmatic activation API (`activate_skill` /
@@ -21,24 +27,30 @@ activation instead.
 
 from typing import TYPE_CHECKING, Any, Dict
 
-from echo.tools.core import BaseTool
+from echo.tools.core import ControlFlow, Observability
+from echo.tools.system import SystemTool
 
 if TYPE_CHECKING:
     from echo.agents.base import BaseAgent
 
 
-class LoadSkillTool(BaseTool):
+class LoadSkillTool(SystemTool):
     """LLM-callable tool that adds a registered skill to the agent's active set."""
 
     name = "load_skill"
     description = (
         "Add one of the agent's registered skills to the active set so its "
-        "instructions and tools become available on subsequent turns. Use "
-        "this when the user's intent matches a skill listed in "
-        "<available_skills>. To swap from one skill to another, call "
-        "unload_skill on the outgoing skill in the same turn (in parallel) "
-        "or beforehand."
+        "instructions and tools become available immediately — the agent "
+        "recomputes and continues this turn. Use this when the user's intent "
+        "matches a skill listed in <available_skills>. To swap from one skill "
+        "to another, call unload_skill on the outgoing skill in the same turn "
+        "(in parallel) or beforehand."
     )
+
+    # Activating a skill changes loaded state → recompute & continue this turn;
+    # the activation itself is internal plumbing, so emit no progress event.
+    control_flow = ControlFlow.INTERRUPT
+    observability = Observability.SILENT
 
     def __init__(self, agent: "BaseAgent") -> None:
         self._agent = agent
@@ -72,16 +84,20 @@ class LoadSkillTool(BaseTool):
         return {"status": "loaded", "skill": name}
 
 
-class UnloadSkillTool(BaseTool):
+class UnloadSkillTool(SystemTool):
     """LLM-callable tool that removes a skill from the agent's active set."""
 
     name = "unload_skill"
     description = (
-        "Remove a skill from the active set. Its instructions and tools are "
-        "no longer visible on subsequent turns. Use this when the user's "
-        "intent shifts away from the active skill, or to make room before "
-        "loading a different skill."
+        "Remove a skill from the active set. Its instructions and tools stop "
+        "being visible immediately — the agent recomputes and continues this "
+        "turn. Use this when the user's intent shifts away from the active "
+        "skill, or to make room before loading a different skill."
     )
+
+    # Deactivating a skill changes loaded state → recompute & continue this turn.
+    control_flow = ControlFlow.INTERRUPT
+    observability = Observability.SILENT
 
     def __init__(self, agent: "BaseAgent") -> None:
         self._agent = agent
