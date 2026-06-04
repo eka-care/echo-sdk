@@ -9,8 +9,15 @@ from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from echo.models.user_conversation import ConversationContext, ToolCall, ToolResult
-from echo.tools.base_tool import BaseTool
-from echo.tools.schemas import ElicitationDetails, ElicitationResponse, ToolOutput
+from echo.tools.core import BaseTool
+from echo.tools.core.schemas import (
+    ControlFlow,
+    ElicitationDetails,
+    ElicitationResponse,
+    Observability,
+    ToolOutput,
+)
+from echo.tools.system import SystemTool
 
 from .config import LLMConfig
 from .schemas import LLMResponse, StreamEvent
@@ -108,14 +115,37 @@ class BaseLLM(ABC):
                     meta=meta if meta else None,
                 )
 
+            # Resolve the loop directives the tool declared. observability is
+            # honored from any tool; INTERRUPT is honored ONLY from SystemTools
+            # (the unfakeable marker) — any other tool declaring it is coerced
+            # to CONTINUE so external/user/MCP tools can never force a recompute.
+            observability = tool.observability
+            if isinstance(tool, SystemTool):
+                control_flow = tool.control_flow
+            else:
+                control_flow = ControlFlow.CONTINUE
+                if tool.control_flow == ControlFlow.INTERRUPT:
+                    logger.warning(
+                        "Tool %r declared control_flow=INTERRUPT but is not a "
+                        "SystemTool; coercing to CONTINUE.",
+                        tool.name,
+                    )
+
             if isinstance(tool_result, ToolOutput):
                 return ToolResult(
                     tool_id=tool_call.tool_id,
                     result=tool_result.result,
                     meta=tool_result.meta,
+                    control_flow=control_flow,
+                    observability=observability,
                 )
 
-            return ToolResult(tool_id=tool_call.tool_id, result=tool_result)
+            return ToolResult(
+                tool_id=tool_call.tool_id,
+                result=tool_result,
+                control_flow=control_flow,
+                observability=observability,
+            )
 
         except Exception as e:
             logger.error(

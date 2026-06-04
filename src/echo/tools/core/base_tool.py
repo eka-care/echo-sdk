@@ -5,7 +5,9 @@ Provides a framework-agnostic interface for tools with adapters.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict
+
+from .schemas import ControlFlow, Observability
 
 
 class BaseTool(ABC):
@@ -18,6 +20,14 @@ class BaseTool(ABC):
 
     name: str = ""
     description: str = ""
+
+    # Loop directives the tool DECLARES. Read at the `invoke_tool` boundary
+    # and stamped onto the resulting ToolResult; the provider loop dispatches
+    # on the stamped value, never on the tool type. Defaults = a normal tool
+    # (feed result back, emit events). `control_flow = INTERRUPT` is only
+    # honored from `SystemTool` subclasses — see `BaseLLM.invoke_tool`.
+    control_flow: ControlFlow = ControlFlow.CONTINUE
+    observability: Observability = Observability.VISIBLE
 
     @property
     def is_elicitation(self) -> bool:
@@ -105,7 +115,9 @@ class BaseTool(ABC):
         "additional_properties",  # snake_case variant from some serializers
     }
 
-    def _flatten_schema(self, schema: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, Any]:
+    def _flatten_schema(
+        self, schema: Dict[str, Any], defs: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Recursively flatten a JSON schema by inlining $ref references
         and removing unsupported fields.

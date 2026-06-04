@@ -4,8 +4,10 @@ import logging
 
 from typing import Any, Literal, Optional
 
-from echo.databases.postgres import PostgresClient, get_default_client
-from echo.tools.base_tool import BaseTool
+from echo.tools.core import BaseTool
+
+from .client import PostgresClient
+from .registry import get_default_client
 
 log = logging.getLogger(__name__)
 

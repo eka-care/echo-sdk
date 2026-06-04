@@ -16,8 +16,8 @@ from echo.models.user_conversation import (
     TextMessage,
     ToolCall,
 )
-from echo.tools.base_tool import BaseTool
-from echo.tools.schemas import ElicitationResponse
+from echo.tools.core import BaseTool
+from echo.tools.core.schemas import ControlFlow, Observability
 
 from .base import BaseLLM
 from .config import LLMConfig
@@ -167,6 +167,7 @@ class OpenAILLM(BaseLLM):
             messages.extend(assistant_msg.to_openai_messages())
 
             tool_results = []
+            interrupt = False  # a tool changed loaded state → recompute & rerun
             for content_item in assistant_msg.content:
                 if isinstance(content_item, TextMessage):
                     final_response.verbose.append(
@@ -176,7 +177,8 @@ class OpenAILLM(BaseLLM):
                     tool_result = await self.invoke_tool(
                         tool_map, content_item, context.tool_context
                     )
-                    if isinstance(tool_result, ElicitationResponse):
+                    # Dispatch on the result's declared directive — never on type.
+                    if tool_result.control_flow == ControlFlow.PAUSE:
                         elicitations.append(tool_result)
                     else:
                         final_response.verbose.append(
@@ -194,15 +196,24 @@ class OpenAILLM(BaseLLM):
                         messages.extend(result_msg.to_openai_messages())
                         tool_results.append(tool_result)
                         final_response.pending_tool_result_processing = True
+                        if tool_result.control_flow == ControlFlow.INTERRUPT:
+                            interrupt = True
 
             if not tool_results:
                 final_response.pending_tool_result_processing = False
 
-            # if we have elicitations, end loop and return to user
+            # Elicitation wins: end loop and return to the user.
             if elicitations:
                 break
 
             request_kwargs["messages"] = messages
+
+            # A tool changed loaded state: stop so the agent can recompute the
+            # prompt + tool list and re-invoke (results already in context).
+            if interrupt:
+                final_response.pending_context_reload = True
+                break
+
             # if we have no tool results, only text, end loop and return to user
             if not tool_results:
                 break
@@ -331,18 +342,20 @@ class OpenAILLM(BaseLLM):
                                     tc_delta.function.name if tc_delta.function else ""
                                 )
                                 tool = tool_map.get(tool_name)
-                                is_elicitation = tool.is_elicitation if tool else False
+                                # Emit generic TOOL_CALL_* events only for VISIBLE
+                                # tools (SILENT = elicitation/system tools).
+                                visible = (
+                                    tool.observability == Observability.VISIBLE
+                                    if tool
+                                    else True
+                                )
                                 tool_calls_map[idx] = {
                                     "id": tc_delta.id or "",
                                     "name": tool_name,
                                     "arguments": "",
-                                    "is_elicitation": is_elicitation,
+                                    "visible": visible,
                                 }
-                                if (
-                                    tc_delta.id
-                                    and tc_delta.function
-                                    and not is_elicitation
-                                ):
+                                if tc_delta.id and tc_delta.function and visible:
                                     yield StreamEvent(
                                         type=StreamEventType.TOOL_CALL_START,
                                         details={
@@ -363,8 +376,8 @@ class OpenAILLM(BaseLLM):
                                     "arguments"
                                 ] += tc_delta.function.arguments
                                 # forward the partial json fragment as a streaming TOOL_CALL_ARGS event so any partial data consumers like ag-ui etc
-                                # can render args as they arrive. skip for elicitation tools, mirroring the TOOL_CALL_START / TOOL_CALL_END skip below.
-                                if not tool_calls_map[idx].get("is_elicitation"):
+                                # can render args as they arrive. skip for SILENT tools, mirroring the TOOL_CALL_START / TOOL_CALL_END skip below.
+                                if tool_calls_map[idx].get("visible"):
                                     yield StreamEvent(
                                         type=StreamEventType.TOOL_CALL_ARGS,
                                         details={
@@ -386,6 +399,7 @@ class OpenAILLM(BaseLLM):
 
                 # Process tool calls and execute them
                 tool_results = []
+                interrupt = False  # a tool changed loaded state → recompute
                 for idx in sorted(tool_calls_map.keys()):
                     tc_data = tool_calls_map[idx]
                     parsed_args = (
@@ -404,8 +418,8 @@ class OpenAILLM(BaseLLM):
                         tool_map, tool_call, context.tool_context
                     )
 
-                    # progress message event (skip for elicitation tools)
-                    if not tc_data.get("is_elicitation"):
+                    # progress message event (skip for SILENT tools)
+                    if tc_data.get("visible"):
                         yield StreamEvent(
                             type=StreamEventType.TOOL_CALL_END,
                             details={
@@ -414,13 +428,16 @@ class OpenAILLM(BaseLLM):
                             },
                         )
 
-                    if isinstance(tool_res, ElicitationResponse):
+                    # Dispatch on the result's declared directive.
+                    if tool_res.control_flow == ControlFlow.PAUSE:
                         elicitations.append(tool_res)
                     else:
                         final_response.verbose.append(
                             VerboseResponseItem(type="tool", tool_name=tc_data["name"])
                         )
                         tool_results.append(tool_res)
+                        if tool_res.control_flow == ControlFlow.INTERRUPT:
+                            interrupt = True
 
                 # Build assistant message and add to context
                 if content_items:
@@ -451,6 +468,11 @@ class OpenAILLM(BaseLLM):
                     break
 
                 request_kwargs["messages"] = messages
+
+                if interrupt:
+                    final_response.pending_context_reload = True
+                    break
+
                 if not tool_results:
                     break
 

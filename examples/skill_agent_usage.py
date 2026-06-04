@@ -33,7 +33,7 @@ from typing import Any, Dict
 
 from echo.agents import GenericAgent, Skill
 from echo.prompts.schemas import AgentPrompt, PromptPersona, PromptTask
-from echo.tools.base_tool import BaseTool
+from echo.tools.core import BaseTool
 
 
 # --- Stub tools (real skills would use real BaseTool subclasses) ---

@@ -9,8 +9,13 @@ import logging
 from abc import abstractmethod
 from typing import Any, Dict, List, Optional
 
-from .base_tool import BaseTool
-from .schemas import ElicitationComponent, ElicitationDetails, ElicitationStatus
+from ..core.base_tool import BaseTool
+from ..core.schemas import (
+    ElicitationComponent,
+    ElicitationDetails,
+    ElicitationStatus,
+    Observability,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +30,10 @@ class BaseElicitationTool(BaseTool):
 
     name = "elicit_base"
     description = "Use this tool to collect structured user input from the user."
+
+    # Elicitations are delivered via the dedicated `elicitations` payload, not
+    # the generic TOOL_CALL_* progress events — so suppress those events.
+    observability = Observability.SILENT
 
     @property
     def is_elicitation(self) -> bool:

@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel
 
 from echo.models.user_conversation import ConversationContext
-from echo.tools.schemas import ElicitationResponse
+from echo.tools.core.schemas import ElicitationResponse
 
 
 class VerboseResponseItem(BaseModel):
@@ -20,6 +20,10 @@ class LLMResponse(BaseModel):
     text: str = ""
     details: Optional[Dict[str, Any]] = None
     pending_tool_result_processing: bool = False
+    # Set when a tool changed the agent's loaded state (control_flow=INTERRUPT):
+    # the provider loop stops and hands back so the agent can recompute the
+    # system prompt + tool list and re-invoke. Consumed by the agent outer loop.
+    pending_context_reload: bool = False
     error: Optional[str] = None
     elicitations: Optional[List[ElicitationResponse]] = None
 

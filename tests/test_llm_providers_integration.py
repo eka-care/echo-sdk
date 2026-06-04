@@ -20,7 +20,7 @@ from echo.models.user_conversation import (
     MessageRole,
     TextMessage,
 )
-from echo.tools.base_tool import BaseTool
+from echo.tools.core import BaseTool
 
 
 class SimpleMockTool(BaseTool):

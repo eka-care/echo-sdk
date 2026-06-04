@@ -16,8 +16,8 @@ from echo.models.user_conversation import (
     TextMessage,
     ToolCall,
 )
-from echo.tools.base_tool import BaseTool
-from echo.tools.schemas import ElicitationResponse
+from echo.tools.core import BaseTool
+from echo.tools.core.schemas import ControlFlow, Observability
 
 from .base import BaseLLM
 from .config import LLMConfig
@@ -143,6 +143,7 @@ class BedrockLLM(BaseLLM):
             messages.append(assistant_msg.to_bedrock_message())
 
             tool_results = []
+            interrupt = False  # a tool changed loaded state → recompute & rerun
             for content_item in assistant_msg.content:
                 if isinstance(content_item, TextMessage):
                     final_response.verbose.append(
@@ -152,7 +153,8 @@ class BedrockLLM(BaseLLM):
                     tool_res = await self.invoke_tool(
                         tool_map, content_item, context.tool_context
                     )
-                    if isinstance(tool_res, ElicitationResponse):
+                    # Dispatch on the result's declared directive — never on type.
+                    if tool_res.control_flow == ControlFlow.PAUSE:
                         elicitations.append(tool_res)
                     else:
                         final_response.verbose.append(
@@ -161,6 +163,8 @@ class BedrockLLM(BaseLLM):
                             )
                         )
                         tool_results.append(tool_res)
+                        if tool_res.control_flow == ControlFlow.INTERRUPT:
+                            interrupt = True
 
             # Add all tool results as a TOOL message (adapter transforms to 'user' for API)
             if tool_results:
@@ -177,11 +181,18 @@ class BedrockLLM(BaseLLM):
             else:
                 final_response.pending_tool_result_processing = False
 
-            # if we have elicitations, end loop and return to user
+            # Elicitation wins: end loop and return to the user.
             if elicitations:
                 break
 
             request_kwargs["messages"] = messages
+
+            # A tool changed loaded state: stop so the agent can recompute the
+            # prompt + tool list and re-invoke (results already in context).
+            if interrupt:
+                final_response.pending_context_reload = True
+                break
+
             # if we have no tool results, only text, end loop and return to user
             if not tool_results:
                 break
@@ -264,6 +275,7 @@ class BedrockLLM(BaseLLM):
                 blocks = {}  # blockid to content block
                 content_items = []
                 tool_results = []
+                interrupt = False  # a tool changed loaded state → recompute
                 usage_metrics = None
                 # stop_reason = None - not needed for time being
 
@@ -275,15 +287,21 @@ class BedrockLLM(BaseLLM):
                         if start.get("toolUse"):
                             tool_name = start["toolUse"]["name"]
                             tool = tool_map.get(tool_name)
-                            is_elicitation = tool.is_elicitation if tool else False
+                            # Emit generic TOOL_CALL_* events only for VISIBLE
+                            # tools (SILENT = elicitation/system tools).
+                            visible = (
+                                tool.observability == Observability.VISIBLE
+                                if tool
+                                else True
+                            )
                             blocks[block_id] = {
                                 "type": "tool",
                                 "tool_id": start["toolUse"]["toolUseId"],
                                 "tool_name": tool_name,
                                 "input_json": "",
-                                "is_elicitation": is_elicitation,
+                                "visible": visible,
                             }
-                            if not is_elicitation:
+                            if visible:
                                 yield StreamEvent(
                                     type=StreamEventType.TOOL_CALL_START,
                                     details={
@@ -319,8 +337,8 @@ class BedrockLLM(BaseLLM):
                             tool_input_fragment = delta["toolUse"].get("input", "")
                             blocks[block_id]["input_json"] += tool_input_fragment
                             # forward the partial json fragment as a streaming TOOL_CALL_ARGS event so any partial data consumers like ag-ui etc
-                            # can render args as they arrive. skip for elicitation tools, mirroring the TOOL_CALL_START / TOOL_CALL_END skip below.
-                            if not blocks[block_id].get("is_elicitation"):
+                            # can render args as they arrive. skip for SILENT tools, mirroring the TOOL_CALL_START / TOOL_CALL_END skip below.
+                            if blocks[block_id].get("visible"):
                                 yield StreamEvent(
                                     type=StreamEventType.TOOL_CALL_ARGS,
                                     details={
@@ -348,8 +366,8 @@ class BedrockLLM(BaseLLM):
                             tool_res = await self.invoke_tool(
                                 tool_map, tool_call, context.tool_context
                             )
-                            # progress message event (skip for elicitation tools)
-                            if not blocks[block_id].get("is_elicitation"):
+                            # progress message event (skip for SILENT tools)
+                            if blocks[block_id].get("visible"):
                                 yield StreamEvent(
                                     type=StreamEventType.TOOL_CALL_END,
                                     details={
@@ -358,11 +376,13 @@ class BedrockLLM(BaseLLM):
                                     },
                                 )
 
-                            if isinstance(tool_res, ElicitationResponse):
-                                # Add accumulated content as assistant message
+                            # Dispatch on the result's declared directive.
+                            if tool_res.control_flow == ControlFlow.PAUSE:
                                 elicitations.append(tool_res)
                             else:
                                 tool_results.append(tool_res)
+                                if tool_res.control_flow == ControlFlow.INTERRUPT:
+                                    interrupt = True
                         else:
                             # add this text block to final content items list
                             content_items.append(
@@ -429,6 +449,11 @@ class BedrockLLM(BaseLLM):
                     break
 
                 request_kwargs["messages"] = messages
+
+                if interrupt:
+                    final_response.pending_context_reload = True
+                    break
+
                 if not tool_results:
                     break
 
