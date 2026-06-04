@@ -85,9 +85,12 @@ agents/         → skills, databases, tools, llm
 - **Docs:** `echo-sdk/overview` skill + `CLAUDE.md` layout/import-policy notes.
 - ✅ Verified: import smoke + `import echo` no longer drags optional `mcp`/`httpx`; SystemTool guard rejects external subclasses; full suite 112 passed / 12 pre-existing failures (proven unrelated via stash test).
 
-## Step 1 — Directives in `core/`
-- `ControlFlow` (`CONTINUE`, `INTERRUPT`, `PAUSE`; room for `STOP`) + `Observability` (`VISIBLE`, `SILENT`) enums.
-- Shared result base exposing `control_flow` + `observability`. `ToolResult` defaults `CONTINUE`/`VISIBLE`, settable. `ElicitationResponse` subclasses it with both fixed as class constants (ctor unchanged for matrix).
+## Step 1 — Directives in `core/` — ✅ DONE
+- Added `ControlFlow` (`CONTINUE`, `INTERRUPT`, `PAUSE`; room for `STOP`) + `Observability` (`VISIBLE`, `SILENT`) enums in `tools/core/schemas.py`, exported from `tools/core/__init__`.
+- **Way 1 (directive on the result), no shared base / no envelope:**
+  - `ToolResult` (`models/user_conversation.py`) gained settable `control_flow`/`observability` fields, `default` CONTINUE/VISIBLE, `Field(exclude=True)` so they never persist (model_dump/DB) — transient processing signals. New one-way edge `models → tools.core.schemas` (no cycle; tools never imports models).
+  - `ElicitationResponse` exposes `control_flow`/`observability` as **read-only properties** returning PAUSE/VISIBLE — fixed, non-overridable (not fields). Loop reads both objects uniformly by duck-typing `.control_flow`/`.observability`.
+- No loop / tool-type / `invoke_tool` behavior change. Verified: defaults, settability, persistence exclusion, elicitation fixedness; full suite 112 passed / 12 pre-existing.
 
 ## Step 2 — Tool types adopt directives
 - `BaseTool`: default `CONTINUE`/`VISIBLE`; can set observability + `PAUSE`; **no path to `INTERRUPT`**.

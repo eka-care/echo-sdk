@@ -14,6 +14,37 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
 
 
+class ControlFlow(str, Enum):
+    """What the agentic loop should do after a tool runs.
+
+    Read off a tool result by the provider loop (never via isinstance). The
+    set is intentionally extensible — e.g. a terminal ``STOP`` can be added
+    later without touching the loop, which dispatches on the value.
+
+    - ``CONTINUE``  — feed the result back and keep looping (default).
+    - ``INTERRUPT`` — the tool changed the agent's loaded state (active
+      skills, history, ...); break so the agent can recompute the prompt +
+      tool list and re-invoke. Only echo-internal ``SystemTool``s emit this.
+    - ``PAUSE``     — stop and return to the user (elicitation).
+    """
+
+    CONTINUE = "continue"
+    INTERRUPT = "interrupt"
+    PAUSE = "pause"
+
+
+class Observability(str, Enum):
+    """Whether executing a tool emits a user-facing event.
+
+    - ``VISIBLE`` — emit TOOL_CALL_* events (default; normal tools).
+    - ``SILENT``  — suppress events (e.g. internal/system tools the user
+      need not see).
+    """
+
+    VISIBLE = "visible"
+    SILENT = "silent"
+
+
 @dataclass
 class ToolOutput:
     """Structured return type for tools that want to attach metadata."""
@@ -55,3 +86,15 @@ class ElicitationResponse(BaseModel):
     tool_name: str
     details: ElicitationDetails
     meta: Optional[Dict[str, Any]] = None
+
+    # Directives are FIXED for elicitation and cannot be overridden — exposed
+    # as read-only properties (not fields) so there is no way to construct an
+    # elicitation that doesn't pause/stay visible. The loop reads these the
+    # same way it reads ToolResult's settable fields.
+    @property
+    def control_flow(self) -> "ControlFlow":
+        return ControlFlow.PAUSE
+
+    @property
+    def observability(self) -> "Observability":
+        return Observability.VISIBLE

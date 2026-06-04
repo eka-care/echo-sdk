@@ -8,18 +8,22 @@ Holds the universal contract (`BaseTool`) and cross-category schemas
 
 from .base_tool import BaseTool
 from .schemas import (
+    ControlFlow,
     ElicitationComponent,
     ElicitationDetails,
     ElicitationResponse,
     ElicitationStatus,
+    Observability,
     ToolOutput,
 )
 
 __all__ = [
     "BaseTool",
+    "ControlFlow",
     "ElicitationComponent",
     "ElicitationDetails",
     "ElicitationResponse",
     "ElicitationStatus",
+    "Observability",
     "ToolOutput",
 ]

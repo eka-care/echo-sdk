@@ -8,6 +8,7 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Discriminator, Field, HttpUrl, Tag, model_validator
 
 from echo.models.providers import Provider
+from echo.tools.core.schemas import ControlFlow, Observability
 from echo.utils.download import download_url_as_bytes
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,15 @@ class ToolResult(BaseModel):
     tool_id: str
     result: Any
     meta: Optional[Dict[str, Any]] = None
+
+    # Loop directives — settable, default to "normal tool" behavior. These are
+    # transient processing signals (read by the provider loop), NOT conversation
+    # data, so they are excluded from serialization/persistence. `exclude=True`
+    # keeps them out of model_dump()/DB; to_anthropic_message() builds provider
+    # payloads by hand and never sees them either. INTERRUPT is only ever set by
+    # echo-internal SystemTools (enforced in later steps).
+    control_flow: ControlFlow = Field(default=ControlFlow.CONTINUE, exclude=True)
+    observability: Observability = Field(default=Observability.VISIBLE, exclude=True)
 
 
 class ImageContent(BaseModel):
