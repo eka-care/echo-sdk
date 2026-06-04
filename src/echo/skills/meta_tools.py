@@ -90,8 +90,8 @@ class UnloadSkillTool(SystemTool):
     name = "unload_skill"
     description = (
         "Remove a skill from the active set. Its instructions and tools stop "
-        "being visible immediately — the agent recomputes and continues this "
-        "turn. Use this when the user's intent shifts away from the active "
+        "being visible immediately and the turn continues."
+        "Use this when the user's intent shifts away from the active "
         "skill, or to make room before loading a different skill."
     )
 

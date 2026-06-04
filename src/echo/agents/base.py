@@ -420,7 +420,10 @@ class BaseAgent(ABC):
                 ):
                     if event.type == StreamEventType.DONE:
                         last_done = event
-                        if event.llm_response and event.llm_response.pending_context_reload:
+                        if (
+                            event.llm_response
+                            and event.llm_response.pending_context_reload
+                        ):
                             # Loaded state changed → recompute & rerun; carry the
                             # updated context forward and swallow this DONE.
                             if event.context is not None:
