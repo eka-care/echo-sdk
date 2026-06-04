@@ -17,7 +17,7 @@ from echo.models.user_conversation import (
     ToolResult,
 )
 from echo.tools.core import BaseTool
-from echo.tools.core.schemas import ElicitationResponse
+from echo.tools.core.schemas import ControlFlow, Observability
 
 import orjson
 
@@ -212,6 +212,7 @@ class GeminiLLM(BaseLLM):
 
             tool_results = []
             tool_result_parts = []
+            interrupt = False  # a tool changed loaded state → recompute & rerun
             for content_item in assistant_msg.content:
                 if isinstance(content_item, TextMessage):
                     final_response.verbose.append(
@@ -221,7 +222,8 @@ class GeminiLLM(BaseLLM):
                     tool_res = await self.invoke_tool(
                         tool_map, content_item, context.tool_context
                     )
-                    if isinstance(tool_res, ElicitationResponse):
+                    # Dispatch on the result's declared directive — never on type.
+                    if tool_res.control_flow == ControlFlow.PAUSE:
                         elicitations.append(tool_res)
                     else:
                         final_response.verbose.append(
@@ -233,6 +235,8 @@ class GeminiLLM(BaseLLM):
                         tool_result_parts.append(
                             self._tool_result_to_gemini_part(tool_res, content_item.tool_name)
                         )
+                        if tool_res.control_flow == ControlFlow.INTERRUPT:
+                            interrupt = True
 
             if tool_results:
                 results_msg = Message(
@@ -246,7 +250,14 @@ class GeminiLLM(BaseLLM):
             else:
                 final_response.pending_tool_result_processing = False
 
+            # Elicitation wins: end loop and return to the user.
             if elicitations:
+                break
+
+            # A tool changed loaded state: stop so the agent can recompute the
+            # prompt + tool list and re-invoke (results already in context).
+            if interrupt:
+                final_response.pending_context_reload = True
                 break
 
             if not tool_results:
@@ -325,6 +336,7 @@ class GeminiLLM(BaseLLM):
                 content_items = []
                 tool_results = []
                 tool_result_parts = []
+                interrupt = False  # a tool changed loaded state → recompute
                 accumulated_text = ""
                 accumulated_tool_calls = []
                 usage_metrics = None
@@ -360,9 +372,15 @@ class GeminiLLM(BaseLLM):
                             accumulated_tool_calls.append(tool_call)
 
                             tool = tool_map.get(fc.name)
-                            is_elicitation = tool.is_elicitation if tool else False
+                            # Emit generic TOOL_CALL_* events only for VISIBLE
+                            # tools (SILENT = elicitation/system tools).
+                            visible = (
+                                tool.observability == Observability.VISIBLE
+                                if tool
+                                else True
+                            )
 
-                            if not is_elicitation:
+                            if visible:
                                 yield StreamEvent(
                                     type=StreamEventType.TOOL_CALL_START,
                                     details={
@@ -372,7 +390,7 @@ class GeminiLLM(BaseLLM):
                                 )
                                 # forward the full args as a single TOOL_CALL_ARGS event so any partial data consumers like ag-ui etc
                                 # can render args. gemini returns complete function_call objects rather than streaming partial json fragments,
-                                # so we emit one event with the entire serialized args. skip for elicitation tools, mirroring the TOOL_CALL_START / TOOL_CALL_END skip.
+                                # so we emit one event with the entire serialized args. skip for SILENT tools, mirroring the TOOL_CALL_START / TOOL_CALL_END skip.
                                 yield StreamEvent(
                                     type=StreamEventType.TOOL_CALL_ARGS,
                                     details={
@@ -386,7 +404,7 @@ class GeminiLLM(BaseLLM):
                                 tool_map, tool_call, context.tool_context
                             )
 
-                            if not is_elicitation:
+                            if visible:
                                 yield StreamEvent(
                                     type=StreamEventType.TOOL_CALL_END,
                                     details={
@@ -395,13 +413,16 @@ class GeminiLLM(BaseLLM):
                                     },
                                 )
 
-                            if isinstance(tool_res, ElicitationResponse):
+                            # Dispatch on the result's declared directive.
+                            if tool_res.control_flow == ControlFlow.PAUSE:
                                 elicitations.append(tool_res)
                             else:
                                 tool_results.append(tool_res)
                                 tool_result_parts.append(
                                     self._tool_result_to_gemini_part(tool_res, fc.name)
                                 )
+                                if tool_res.control_flow == ControlFlow.INTERRUPT:
+                                    interrupt = True
 
                     if chunk.usage_metadata:
                         usage_metrics = LLMUsageMetrics(
@@ -461,6 +482,10 @@ class GeminiLLM(BaseLLM):
                     final_response.pending_tool_result_processing = False
 
                 if elicitations:
+                    break
+
+                if interrupt:
+                    final_response.pending_context_reload = True
                     break
 
                 if not tool_results:

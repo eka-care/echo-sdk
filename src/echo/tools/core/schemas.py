@@ -89,12 +89,16 @@ class ElicitationResponse(BaseModel):
 
     # Directives are FIXED for elicitation and cannot be overridden — exposed
     # as read-only properties (not fields) so there is no way to construct an
-    # elicitation that doesn't pause/stay visible. The loop reads these the
-    # same way it reads ToolResult's settable fields.
+    # elicitation that doesn't pause/stay silent. The loop reads these the same
+    # way it reads ToolResult's settable fields.
+    #
+    # observability == SILENT: elicitations do NOT emit the generic TOOL_CALL_*
+    # progress events — they reach the user through the dedicated `elicitations`
+    # payload channel instead (see BaseElicitationTool / the provider loops).
     @property
     def control_flow(self) -> "ControlFlow":
         return ControlFlow.PAUSE
 
     @property
     def observability(self) -> "Observability":
-        return Observability.VISIBLE
+        return Observability.SILENT

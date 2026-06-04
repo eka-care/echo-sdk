@@ -99,9 +99,15 @@ agents/         → skills, databases, tools, llm
 - **`BaseElicitationTool` / `MCPTool`**: unchanged — elicitation routes to `ElicitationResponse` (fixed PAUSE) via existing `is_elicitation`/`ElicitationDetails` paths.
 - **Behavior-neutral:** no tool declares non-defaults yet and the loop doesn't read `control_flow` until Step 3. Verified: normal→CONTINUE/VISIBLE, non-system INTERRUPT→coerced+warned, real SystemTool→INTERRUPT/SILENT honored; suite 112/12.
 
-## Step 3 — Provider inner loop reads directive (`llm/`)
-- `anthropic.py` first: replace `isinstance(tool_res, ElicitationResponse)` with `result.control_flow`. Break on `PAUSE`/`INTERRUPT` **after** appending tool-results message (valid re-entry). Use `observability` to gate `TOOL_CALL_*` events (replaces `is_elicitation` skips). Surface outcome via `LLMResponse` (`pending_context_reload` for INTERRUPT; existing `elicitations` for PAUSE).
-- Mirror into `openai.py`, `bedrock.py`, `gemini.py` — same generic read.
+## Step 3 — Provider inner loop reads directive (`llm/`) — ✅ DONE
+- All four providers (`anthropic`, `openai`, `bedrock`, `gemini`), both `invoke` and `invoke_stream`:
+  - Result routing dispatches on `tool_res.control_flow`: `PAUSE`→elicitations, `INTERRUPT`→tool_results + `interrupt` flag, else→tool_results. Replaced every `isinstance(tool_res, ElicitationResponse)`.
+  - Event gating uses `tool.observability == VISIBLE` (stored as `visible`), replacing `is_elicitation` for `TOOL_CALL_START/ARGS/END`.
+  - Break order: elicitation wins → else `interrupt` sets `pending_context_reload` + break → else no-tool-results break.
+- `LLMResponse.pending_context_reload: bool` added (consumed in Step 4).
+- **Observability correction:** `ElicitationResponse.observability` + `BaseElicitationTool.observability` = `SILENT` (elicitations use the dedicated `elicitations` payload, not generic progress events) → new gate is exactly equivalent to the old `is_elicitation` gate.
+- `is_elicitation` retained only in `invoke_tool` (constructs `ElicitationResponse`).
+- **Behavior-preserving** (nothing emits INTERRUPT until Step 5). Verified via fake Anthropic client: INTERRUPT → `pending_context_reload=True`, 1 call, ctx tail `[assistant, tool]`; CONTINUE → 2 calls, final text. Suite 112/12.
 
 ## Step 4 — Agent outer loop (`agents/base.py`)
 - Wrap invoke/invoke_stream in `_run_agent`/`_run_agent_stream` with **rerun-iff** loop: on INTERRUPT & not returning to host → recompute `_build_system_prompt()` + `_build_active_tools()` → re-invoke; bound by `max_skill_reloads`.
