@@ -42,6 +42,12 @@ class BaseAgent(ABC):
     - Implement `run()` method for standalone execution
     """
 
+    # Max times the agent will recompute (prompt + tool list) and re-invoke the
+    # LLM within a single turn in response to a context-reload directive
+    # (control_flow=INTERRUPT, e.g. a skill load). Bounds the outer loop so a
+    # model that keeps reloading can't spin forever. Total invokes <= this + 1.
+    max_context_reloads: int = 3
+
     @property
     @abstractmethod
     def name(self) -> str:
@@ -342,21 +348,39 @@ class BaseAgent(ABC):
     ) -> AgentResult:
         """Run the agent (non-streaming)."""
         try:
-            # Build system prompt with task(mandatory) & expected output,role(optional)
-            system_prompt = self._build_system_prompt(skip_goal=True)
+            # Rerun-iff loop: a tool may change the agent's loaded state
+            # (control_flow=INTERRUPT, e.g. a skill load) and ask, via
+            # pending_context_reload, that we recompute the prompt + tool list
+            # and continue the same turn. Each pass rebuilds both fresh — so a
+            # just-activated skill's instructions and tools are now visible. The
+            # provider leaves pending_context_reload=False when an elicitation is
+            # pending, so elicitation naturally returns to the host (no rerun).
+            llm_response = None
+            for _ in range(self.max_context_reloads + 1):
+                # Build system prompt with task(mandatory) & expected output,role(optional).
+                # Tool list is recomposed per pass from base tools + active skill
+                # tools. With no skills registered this returns self.tools as-is.
+                system_prompt = self._build_system_prompt(skip_goal=True)
+                llm_response, context = await self.llm.invoke(
+                    context=context,
+                    tools=self._build_active_tools(),
+                    system_prompt=system_prompt,
+                    out_msg_id=out_msg_id,
+                )
+                if not llm_response.pending_context_reload:
+                    break
+            else:
+                logger.warning(
+                    "Agent %s hit max_context_reloads (%d); returning current response.",
+                    self.name,
+                    self.max_context_reloads,
+                )
+                if llm_response is not None:
+                    llm_response.pending_context_reload = False
 
-            # Call LLM with tools - tool_context automatically injected.
-            # Tool list is recomposed per turn from base tools + active skill
-            # tools. With no skills registered this returns self.tools as-is.
-            llm_response, updated_context = await self.llm.invoke(
-                context=context,
-                tools=self._build_active_tools(),
-                system_prompt=system_prompt,
-                out_msg_id=out_msg_id,
-            )
             return AgentResult(
                 llm_response=llm_response,
-                context=updated_context,
+                context=context,
                 agent_name=self.name,
             )
 
@@ -378,16 +402,50 @@ class BaseAgent(ABC):
     ) -> AsyncGenerator[StreamEvent, None]:
         """Run the agent with streaming."""
         try:
-            # Build system prompt with task(mandatory) & expected output,role(optional)
-            system_prompt = self._build_system_prompt(skip_goal=True)
+            # Rerun-iff loop (streaming mirror of _run_agent): pass through every
+            # event, but when a stream ends with a DONE carrying
+            # pending_context_reload, swallow that DONE, carry the updated context
+            # forward, recompute prompt + tools, and stream again — so the user
+            # sees one continuous turn. Only the final (non-reloading) DONE is
+            # forwarded.
+            last_done: Optional[StreamEvent] = None
+            for _ in range(self.max_context_reloads + 1):
+                reload = False
+                system_prompt = self._build_system_prompt(skip_goal=True)
+                async for event in self.llm.invoke_stream(
+                    context=context,
+                    tools=self._build_active_tools(),
+                    system_prompt=system_prompt,
+                    out_msg_id=out_msg_id,
+                ):
+                    if event.type == StreamEventType.DONE:
+                        last_done = event
+                        if event.llm_response and event.llm_response.pending_context_reload:
+                            # Loaded state changed → recompute & rerun; carry the
+                            # updated context forward and swallow this DONE.
+                            if event.context is not None:
+                                context = event.context
+                            reload = True
+                        break  # DONE is always the last event from the provider
+                    yield event
 
-            async for event in self.llm.invoke_stream(
-                context=context,
-                tools=self._build_active_tools(),
-                system_prompt=system_prompt,
-                out_msg_id=out_msg_id,
-            ):
-                yield event
+                if not reload:
+                    # Terminal DONE (or the stream ended via ERROR, already yielded).
+                    if last_done is not None:
+                        yield last_done
+                    return
+
+            # Exhausted reloads: emit the last captured DONE as the terminal event
+            # (clear the flag so no downstream consumer tries to continue).
+            logger.warning(
+                "Agent %s hit max_context_reloads (%d); ending stream.",
+                self.name,
+                self.max_context_reloads,
+            )
+            if last_done is not None:
+                if last_done.llm_response is not None:
+                    last_done.llm_response.pending_context_reload = False
+                yield last_done
         except Exception as e:
             context_info = str(context.system_context) if context else ""
             logger.error(

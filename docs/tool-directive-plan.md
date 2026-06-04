@@ -109,11 +109,13 @@ agents/         → skills, databases, tools, llm
 - `is_elicitation` retained only in `invoke_tool` (constructs `ElicitationResponse`).
 - **Behavior-preserving** (nothing emits INTERRUPT until Step 5). Verified via fake Anthropic client: INTERRUPT → `pending_context_reload=True`, 1 call, ctx tail `[assistant, tool]`; CONTINUE → 2 calls, final text. Suite 112/12.
 
-## Step 4 — Agent outer loop (`agents/base.py`)
-- Wrap invoke/invoke_stream in `_run_agent`/`_run_agent_stream` with **rerun-iff** loop: on INTERRUPT & not returning to host → recompute `_build_system_prompt()` + `_build_active_tools()` → re-invoke; bound by `max_skill_reloads`.
-- Elicitation precedence: present → return to host (no rerun).
-- Streaming: swallow intermediate `DONE`s; emit `DONE` only on final non-reloading pass.
-- Reserve slot for loop-originated policy (auto-`summary` on token threshold) at same recompute site — not built now.
+## Step 4 — Agent outer loop (`agents/base.py`) — ✅ DONE
+- Added `BaseAgent.max_context_reloads: int = 3` (total invokes ≤ max+1).
+- **`_run_agent`**: rerun-iff loop — recompute `_build_system_prompt()` + `_build_active_tools()` each pass, `invoke`; break unless `llm_response.pending_context_reload`; on exhaustion log warning + clear flag.
+- **`_run_agent_stream`**: same loop — pass through all non-`DONE` events; on `DONE` with `pending_context_reload` carry `event.context`, swallow the DONE, recompute & re-stream; else forward the terminal DONE. On exhaustion emit last captured DONE (flag cleared). ERROR-without-DONE ends the stream as before.
+- Elicitation precedence is automatic: provider leaves `pending_context_reload=False` when elicitations are present → returns to host (the activated skill persists as agent state).
+- Loop-originated policy (auto-summary on token threshold) slot reserved at the recompute site — not built.
+- Verified end-to-end (real GenericAgent + fake LLM): non-stream rerun recomputes and picks up a skill activated mid-turn (skill body absent in pass-1 prompt, present in pass-2); exhaustion caps at max+1 invokes with flag cleared; streaming swallows the intermediate DONE, emits one terminal DONE, streams both passes. Suite 112/12.
 
 ## Step 5 — Skill meta-tools rebase
 - `LoadSkillTool`/`UnloadSkillTool` → subclass `SystemTool`, stamp `INTERRUPT` + (likely) `SILENT`. Live in `echo/skills/meta_tools.py`.
