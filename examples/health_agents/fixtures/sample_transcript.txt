@@ -1,0 +1,33 @@
+Doctor: Good morning, come in. What brings you here today?
+Patient: Morning doctor. I've had a bad cough for about five days now, and since
+yesterday I've been running a fever.
+Doctor: Okay. Is the cough dry or are you bringing up any phlegm?
+Patient: It's mostly dry, but this morning there was a little yellowish phlegm.
+Doctor: Any chest pain or difficulty breathing?
+Patient: No chest pain. I do feel a bit breathless when I climb the stairs, but
+not at rest.
+Doctor: Any fever measured at home?
+Patient: Yes, last night it was 38.9 degrees.
+Doctor: Alright. Do you have any ongoing medical conditions?
+Patient: I have type 2 diabetes, diagnosed about six years ago. I take
+metformin 500 mg twice a day.
+Doctor: Any known drug allergies?
+Patient: Yes — penicillin gives me a rash.
+Doctor: Do you smoke or drink?
+Patient: I quit smoking three years ago. I used to smoke about ten cigarettes a
+day for fifteen years. I drink occasionally, maybe once a month.
+Doctor: Let me check your vitals. Your temperature is 38.5, pulse 96, blood
+pressure 130 over 84, oxygen saturation 97 percent. On examination, your throat
+is mildly red and I can hear a few crackles in the right lower lung field. No
+wheeze. Heart sounds are normal.
+Patient: Is it serious, doctor?
+Doctor: It looks like a chest infection — likely a community-acquired pneumonia
+given the crackles and fever. I'm going to start you on azithromycin 500 mg once
+daily for three days. Since you're allergic to penicillin we'll avoid amoxicillin.
+Take paracetamol 650 mg up to three times a day if the fever is troubling you.
+Patient: Okay.
+Doctor: Please get a chest X-ray and a complete blood count done today. Drink
+plenty of fluids and rest. If your breathlessness gets worse, or the fever
+doesn't settle in 48 hours, come back immediately. Otherwise, let's review in
+five days. Keep monitoring your blood sugar closely while you're unwell.
+Patient: Thank you, doctor.

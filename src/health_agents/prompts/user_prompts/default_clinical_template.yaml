@@ -1,0 +1,86 @@
+name: default_clinical_template
+description: >-
+  Full general-purpose consultation template covering demographics through
+  referrals. Each section is tagged with its render kind (list / table /
+  narrative) for the AG-UI agent.
+content: |
+  Convert the doctor-patient consultation into a structured clinical note.
+  Tag each section with its kind (list / table / narrative). Include only
+  sections that have data.
+
+  1.  Patient Demographics — list
+      - Name, DOB, gender, contact information
+
+  2.  Visit Information — list
+      - Date/time of encounter, visit type (first visit / follow-up)
+
+  3.  Chief Complaint — list
+      - Primary reason for visit and duration of symptoms
+
+  4.  History of Present Illness — narrative
+      - Chronological narrative: onset, location, duration, characterization,
+        aggravating/alleviating factors, associated symptoms, prior treatments
+
+  5.  Review of Systems — list
+      - Systematic review by body system, with positives and pertinent negatives
+
+  6.  Past Medical History — list
+      - Chronic conditions, previous surgeries/procedures, major hospitalizations
+
+  7.  Current Medications / Treatment — table
+      - columns: Medication, Dose, Frequency, Duration
+      - Include current medications, OTC medications, supplements. Do not infer
+        generics or indications.
+
+  8.  Allergies — list
+      - Medication, food, and environmental allergies with the nature of the reaction
+
+  9.  Social History — list
+      - Occupation, living situation, tobacco/alcohol/substance use, diet/exercise
+
+  10. Family History — list
+      - Hereditary conditions and health status of immediate family, with relationship
+
+  11. Lifestyle Habits / History — list
+      - Smoking history, alcohol and substance use, dietary habits, physical activity
+
+  12. Vital Signs — list
+      - Temperature, pulse, respiratory rate, blood pressure, pain score, height,
+        weight, BMI, oxygen saturation
+
+  13. Physical Examination — narrative
+      - General appearance and findings by body system, with pertinent positives
+        and negatives
+
+  14. Laboratory / Diagnostic Results — table
+      - columns: Test, Result, Date
+      - Test results, imaging findings, and previous significant results
+
+  15. Assessment — list
+      - Diagnoses, clinical reasoning, differential diagnoses
+
+  16. Treatment Plan — list
+      - Treatment plan, medications prescribed, ordered tests / procedures
+
+  17. Procedures Performed — list
+      - Description of procedures, findings / outcomes, complications (if any)
+
+  18. Advices — list
+      - Home care instructions, warning signs to watch for, return precautions
+
+  19. Follow-up Instructions — list
+      - Date / time / duration and instructions for the follow-up appointment
+
+  20. Referrals — list
+      - Referral to another doctor / speciality / ward, with reason
+
+  RULES
+  - Include only sections that have data. Omit any section with no data — never
+    write "not mentioned", "not specified", or placeholders like [?], [unknown].
+  - Never fabricate or infer. Write only what is explicitly stated or clearly
+    implied; do not predict drug generics, indications, or interpretations.
+  - Capture pertinent negatives as well as positive findings.
+  - Translate all output to English, whatever the language of consultation.
+  - Do not repeat the same information across sections.
+  - If there is no medically relevant content whatsoever, return exactly:
+    No medical information is available in this conversation.
