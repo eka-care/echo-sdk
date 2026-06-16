@@ -160,11 +160,6 @@ class LLMConfig(BaseModel):
     @model_validator(mode="after")
     def validate_model(self):
         """Validate the model."""
-        supported_model_ids = self.get_provider_supported_model_ids()
-        if self.model not in supported_model_ids:
-            raise ValueError(
-                f"Unsupported model: {self.model} for provider: {self.provider}. Supported: {supported_model_ids}"
-            )
 
         # Validate thinking config if provided
         if self.thinking:
