@@ -51,7 +51,7 @@ class AnthropicLLM(BaseLLM):
         # Claude 4/4.5 models support extended thinking
         return any(
             x in self.model
-            for x in ["claude-sonnet-4", "claude-haiku-4", "claude-opus-4"]
+            for x in ["claude-sonnet-4-6", "claude-haiku-4", "claude-opus-4"]
         )
 
     def _parse_response(self, response, msg_id: str) -> Message:

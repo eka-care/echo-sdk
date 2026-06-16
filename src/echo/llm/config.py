@@ -87,84 +87,9 @@ class LLMConfig(BaseModel):
         else:
             raise ValueError(f"Unsupported provider for CrewAI: {self.provider}")
 
-    def get_provider_supported_model_ids(self) -> Set[str]:
-        """Get the supported model IDs for the LLM."""
-        if self.provider == "bedrock":
-            return set(
-                [
-                    "anthropic.claude-3-haiku-20240307-v1:0",
-                    "anthropic.claude-sonnet-4-20250514-v1:0",
-                ]
-            )
-        elif self.provider == "openai":
-            return set(
-                [
-                    "gpt-5.2",
-                    "gpt-5.1",
-                    "gpt-5",
-                    "gpt-5-mini",
-                    "gpt-5-nano",
-                    "gpt-4.1",
-                    "gpt-4.1-mini",
-                    "gpt-4.1-nano",
-                    "gpt-4o",
-                    "gpt-4o-mini",
-                    "o3",
-                    "o4-mini",
-                    "o3-mini",
-                    "o1",
-                    "o3-pro",
-                    "gpt-5-pro",
-                    "gpt-5.2-pro",
-                    "o1-pro",
-                    "codex-mini-latest",
-                    "computer-use-preview",
-                    "o3-deep-research",
-                    "o4-mini-deep-research",
-                    "gpt-5.5",
-                    "gpt-5.4",
-                    "gpt-5.3-chat-latest",
-                ]
-            )
-        elif self.provider == "anthropic":
-            return set(
-                [
-                    "claude-opus-4-20250514",  # IN: $15, OP: $75
-                    "claude-sonnet-4-20250514",  # IN: $3, OP: $15
-                    "claude-sonnet-4-5-20250929",  # IN: $0.30, OP: $1.50
-                    "claude-haiku-4-5-20251001",  # IN: $0.08, OP: $0.40
-                    "claude-opus-4-5-20251101",  # IN: $0.15, OP: $0.75
-                    "claude-3-haiku-20240307",  # IN: $0.025, OP: $0.125
-                ]
-            )
-        elif self.provider == "gemini":
-            return set(
-                [
-                    "models/gemini-3-pro-preview",
-                    "models/gemini-3-flash-preview",
-                    "models/gemini-pro-latest",
-                    "models/gemini-2.5-pro",  # $1.25 / $10 - Most capable, reasoning
-                    "models/gemini-2.5-pro-preview-06-05",  # $1.25 / $10 - Most capable, reasoning
-                    "models/gemini-flash-latest",
-                    "models/gemini-2.5-flash",
-                    "models/gemini-2.5-flash-preview-09-2025",
-                    "models/gemini-2.5-flash-lite-preview-09-2025",
-                    "models/gemini-2.5-flash-lite",
-                    "models/gemini-2.0-flash",  # $0.10 / $0.40 - Fast, multimodal
-                    "models/gemini-2.0-flash-lite",  # $0.075 / $0.30 - Budget option
-                ]
-            )
-        else:
-            raise ValueError(f"Unsupported provider: {self.provider}")
-
     @model_validator(mode="after")
     def validate_model(self):
         """Validate the model."""
-        supported_model_ids = self.get_provider_supported_model_ids()
-        if self.model not in supported_model_ids:
-            raise ValueError(
-                f"Unsupported model: {self.model} for provider: {self.provider}. Supported: {supported_model_ids}"
-            )
 
         # Validate thinking config if provided
         if self.thinking:
