@@ -33,7 +33,7 @@ from echo.models import ConversationContext, Message, MessageRole, TextMessage
 
 async def main():
     # Create LLM (supports bedrock, anthropic, openai)
-    llm = get_llm(LLMConfig(provider="anthropic", model="claude-sonnet-4-20250514"))
+    llm = get_llm(LLMConfig(provider="anthropic", model="claude-sonnet-4-6"))
 
     context = ConversationContext()
     context.add_message(

@@ -346,7 +346,7 @@ Required: `export OPENAI_API_KEY=your_key`
 ```python
 llm = get_llm(LLMConfig(
     provider="anthropic",
-    model="claude-sonnet-4-20250514",
+    model="claude-sonnet-4-6",
     temperature=0.7
 ))
 ```
@@ -657,7 +657,7 @@ async def main():
         agent_config=MY_AGENT_CONFIG,
         llm_config=LLMConfig(
             provider="anthropic",
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             temperature=0.3  # Lower for more focused responses
         )
     )
