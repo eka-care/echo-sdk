@@ -46,6 +46,24 @@ class AnthropicLLM(BaseLLM):
             self._client = anthropic.Anthropic(api_key=self.config.api_key)
         return self._client
 
+    @staticmethod
+    def _cached_system(system_prompt: str) -> List[dict]:
+        """
+        Wrap the system prompt as a single cached text block.
+
+        The breakpoint goes on the system prompt because it's the stable prefix
+        (fixed per prompt/version/variables); the volatile user message stays
+        uncached. If the prompt is below the model's minimum cacheable size the
+        marker silently no-ops — harmless, so it's placed unconditionally.
+        """
+        return [
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+
     def _supports_extended_thinking(self) -> bool:
         """Check if model supports extended thinking."""
         # Claude 4/4.5 models support extended thinking
@@ -77,6 +95,12 @@ class AnthropicLLM(BaseLLM):
                 in_t=response.usage.input_tokens,
                 op_t=response.usage.output_tokens,
                 latency_ms=0,  # Anthropic doesn't provide this directly
+                cache_write_t=getattr(
+                    response.usage, "cache_creation_input_tokens", 0
+                )
+                or 0,
+                cache_read_t=getattr(response.usage, "cache_read_input_tokens", 0)
+                or 0,
             ),
         )
 
@@ -124,7 +148,7 @@ class AnthropicLLM(BaseLLM):
             }
 
         if system_prompt:
-            request_kwargs["system"] = system_prompt
+            request_kwargs["system"] = self._cached_system(system_prompt)
         if tool_schemas:
             request_kwargs["tools"] = tool_schemas
 
@@ -143,6 +167,7 @@ class AnthropicLLM(BaseLLM):
 
             # Parse response into Message
             assistant_msg = self._parse_response(response, msg_id)
+            final_response.usage = assistant_msg.usage
             context.add_message(assistant_msg)
             messages.append(assistant_msg.to_anthropic_message())
 
@@ -267,7 +292,7 @@ class AnthropicLLM(BaseLLM):
             }
 
         if system_prompt:
-            request_kwargs["system"] = system_prompt
+            request_kwargs["system"] = self._cached_system(system_prompt)
         if tool_schemas:
             request_kwargs["tools"] = tool_schemas
 
@@ -287,7 +312,25 @@ class AnthropicLLM(BaseLLM):
                     usage_metrics = None
 
                     for event in stream:
-                        if event.type == "content_block_start":
+                        if event.type == "message_start":
+                            # Input + cache read/write tokens are reported here
+                            # (message_delta only carries the output count).
+                            u = getattr(event.message, "usage", None)
+                            if u:
+                                usage_metrics = LLMUsageMetrics(
+                                    in_t=getattr(u, "input_tokens", 0) or 0,
+                                    op_t=getattr(u, "output_tokens", 0) or 0,
+                                    latency_ms=0,
+                                    cache_write_t=getattr(
+                                        u, "cache_creation_input_tokens", 0
+                                    )
+                                    or 0,
+                                    cache_read_t=getattr(
+                                        u, "cache_read_input_tokens", 0
+                                    )
+                                    or 0,
+                                )
+                        elif event.type == "content_block_start":
                             block_id = event.index
                             block = event.content_block
                             if block.type == "tool_use":
@@ -389,12 +432,14 @@ class AnthropicLLM(BaseLLM):
                                 )
 
                         elif event.type == "message_delta":
-                            # Contains usage info
+                            # Running output-token count; input + cache tokens
+                            # were already seeded from message_start above.
                             if hasattr(event, "usage") and event.usage:
-                                usage_metrics = LLMUsageMetrics(
-                                    in_t=getattr(event.usage, "input_tokens", 0),
-                                    op_t=getattr(event.usage, "output_tokens", 0),
-                                    latency_ms=0,
+                                if usage_metrics is None:
+                                    usage_metrics = LLMUsageMetrics(latency_ms=0)
+                                usage_metrics.op_t = (
+                                    getattr(event.usage, "output_tokens", 0)
+                                    or usage_metrics.op_t
                                 )
 
                 # -- end of stream --
@@ -420,6 +465,7 @@ class AnthropicLLM(BaseLLM):
                     msg_id=msg_id,
                     usage=usage_metrics,
                 )
+                final_response.usage = usage_metrics
                 context.add_message(llm_message)
                 messages.append(llm_message.to_anthropic_message())
 
