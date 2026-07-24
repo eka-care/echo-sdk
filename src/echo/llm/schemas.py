@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel
 
-from echo.models.user_conversation import ConversationContext
+from echo.models.user_conversation import ConversationContext, LLMUsageMetrics
 from echo.tools.core.schemas import ElicitationResponse
 
 
@@ -18,6 +18,8 @@ class LLMResponse(BaseModel):
 
     verbose: List[VerboseResponseItem] = []
     text: str = ""
+    # Usage of the final LLM call (includes prompt-cache read/write tokens).
+    usage: Optional[LLMUsageMetrics] = None
     details: Optional[Dict[str, Any]] = None
     pending_tool_result_processing: bool = False
     # Set when a tool changed the agent's loaded state (control_flow=INTERRUPT):
