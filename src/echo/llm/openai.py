@@ -19,7 +19,7 @@ from echo.models.user_conversation import (
 from echo.tools.core import BaseTool
 from echo.tools.core.schemas import ControlFlow, Observability
 
-from .base import BaseLLM
+from .base import BaseLLM, prompt_cache_id
 from .config import LLMConfig
 from .schemas import LLMResponse, StreamEvent, StreamEventType, VerboseResponseItem
 
@@ -46,6 +46,20 @@ class OpenAILLM(BaseLLM):
             else:
                 self._client = OpenAI()
         return self._client
+
+    @staticmethod
+    def _system_content(system_prompt: str, system_suffix: Optional[str] = None) -> str:
+        """Join the cacheable prefix and the volatile context into one system
+        message, stable half first.
+
+        OpenAI caches automatically on the longest common prefix — there is no
+        breakpoint to place — so ordering is the whole mechanism: anything that
+        varies per user, per session, or per turn has to come last, or the
+        agent's shared prefix stops matching.
+        """
+        if not system_suffix:
+            return system_prompt
+        return f"{system_prompt}\n\n{system_suffix}"
 
     def _uses_max_completion_tokens(self) -> bool:
         """Check if model uses max_completion_tokens instead of max_tokens.
@@ -98,6 +112,7 @@ class OpenAILLM(BaseLLM):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        system_suffix: Optional[str] = None,
         out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Tuple[LLMResponse, ConversationContext]:
@@ -123,13 +138,25 @@ class OpenAILLM(BaseLLM):
 
         # Add system message if provided
         if system_prompt:
-            messages = [{"role": "system", "content": system_prompt}] + messages
+            messages = [
+                {
+                    "role": "system",
+                    "content": self._system_content(system_prompt, system_suffix),
+                }
+            ] + messages
 
         # Build the base request kwargs once
         request_kwargs = {
             "model": self.model,
             "messages": messages,
         }
+
+        # Routes requests sharing a prefix to the same cache. Keyed on the
+        # cacheable half only, so every session of an agent lands together and
+        # different agents stay apart.
+        cache_key = prompt_cache_id(system_prompt)
+        if cache_key:
+            request_kwargs["prompt_cache_key"] = cache_key
 
         # Use appropriate token limit parameter based on model
         max_tokens_value = kwargs.get("max_tokens", self.max_tokens)
@@ -239,6 +266,7 @@ class OpenAILLM(BaseLLM):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        system_suffix: Optional[str] = None,
         out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
@@ -271,7 +299,12 @@ class OpenAILLM(BaseLLM):
 
         # Add system message if provided
         if system_prompt:
-            messages = [{"role": "system", "content": system_prompt}] + messages
+            messages = [
+                {
+                    "role": "system",
+                    "content": self._system_content(system_prompt, system_suffix),
+                }
+            ] + messages
 
         # Build the base request kwargs
         request_kwargs = {
@@ -280,6 +313,13 @@ class OpenAILLM(BaseLLM):
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+
+        # Routes requests sharing a prefix to the same cache. Keyed on the
+        # cacheable half only, so every session of an agent lands together and
+        # different agents stay apart.
+        cache_key = prompt_cache_id(system_prompt)
+        if cache_key:
+            request_kwargs["prompt_cache_key"] = cache_key
 
         # Use appropriate token limit parameter based on model
         max_tokens_value = kwargs.get("max_tokens", self.max_tokens)

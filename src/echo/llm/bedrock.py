@@ -21,6 +21,7 @@ from echo.tools.core.schemas import ControlFlow, Observability
 
 from .base import BaseLLM
 from .config import LLMConfig
+from .model_capabilities import claude_capabilities
 from .schemas import LLMResponse, StreamEvent, StreamEventType, VerboseResponseItem
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,63 @@ class BedrockLLM(BaseLLM):
         super().__init__(config)
         self.region = config.region or "ap-south-1"
         self._client = None
+        # Bedrock Claude IDs (`anthropic.claude-sonnet-5`) carry the same
+        # per-generation request rules as the first-party API. Non-Claude models
+        # resolve to the permissive pre-5 surface, so this is a no-op for them.
+        self.capabilities = claude_capabilities(config.model)
+
+    def _inference_config(self, overrides: dict) -> dict:
+        """Build `inferenceConfig` for this model."""
+        config = {"maxTokens": overrides.get("max_tokens", self.max_tokens)}
+        # Sonnet 5 / Opus 4.7+ removed the sampling parameters and 400 on them.
+        if self.capabilities.accepts_sampling_params:
+            config["temperature"] = overrides.get("temperature", self.temperature)
+        return config
+
+    def _system_blocks(
+        self, system_prompt: str, system_suffix: Optional[str] = None
+    ) -> List[dict]:
+        """
+        Build the Converse ``system`` blocks, with a cache point if the model
+        supports one.
+
+        Caching is a byte-exact prefix match, so the ``cachePoint`` goes right
+        after the agent's stable persona + task and before ``system_suffix``,
+        which holds whatever varies per user, per session, or per turn. That
+        keeps one cache entry per agent prompt rather than one per session.
+
+        Models that predate Bedrock prompt caching reject a ``cachePoint``
+        block outright, so it is omitted for them and both halves are still
+        sent — same prompt, no caching.
+        """
+        blocks = [{"text": system_prompt}]
+        if self.capabilities.supports_prompt_caching:
+            blocks.append({"cachePoint": {"type": "default"}})
+        if system_suffix:
+            blocks.append({"text": system_suffix})
+        return blocks
+
+    def _additional_request_fields(self) -> dict:
+        """
+        Model-specific fields Converse passes straight through to the model.
+
+        The 5-series thinks by default when `thinking` is unset, where every
+        older model did not. For those models, set adaptive thinking with low
+        effort so the default is explicit and stable.
+        """
+        caps = self.capabilities
+        if (
+            caps.thinking_on_by_default
+            and caps.supports_effort
+            and caps.can_disable_thinking
+        ):
+            return {
+                "additionalModelRequestFields": {
+                    "thinking": {"type": "adaptive"},
+                    "output_config": {"effort": "low"},
+                }
+            }
+        return {}
 
     @property
     def client(self):
@@ -78,6 +136,8 @@ class BedrockLLM(BaseLLM):
                 in_t=usage.get("inputTokens", 0),
                 op_t=usage.get("outputTokens", 0),
                 latency_ms=response.get("metrics", {}).get("latencyMs", 0),
+                cache_write_t=usage.get("cacheWriteInputTokens", 0) or 0,
+                cache_read_t=usage.get("cacheReadInputTokens", 0) or 0,
             ),
         )
 
@@ -86,6 +146,7 @@ class BedrockLLM(BaseLLM):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        system_suffix: Optional[str] = None,
         out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Tuple[LLMResponse, ConversationContext]:
@@ -113,14 +174,12 @@ class BedrockLLM(BaseLLM):
         request_kwargs = {
             "modelId": self.model,
             "messages": messages,
-            "inferenceConfig": {
-                "maxTokens": kwargs.get("max_tokens", self.max_tokens),
-                "temperature": kwargs.get("temperature", self.temperature),
-            },
+            "inferenceConfig": self._inference_config(kwargs),
+            **self._additional_request_fields(),
         }
 
         if system_prompt:
-            request_kwargs["system"] = [{"text": system_prompt}]
+            request_kwargs["system"] = self._system_blocks(system_prompt, system_suffix)
 
         if tool_config:
             request_kwargs["toolConfig"] = tool_config
@@ -218,6 +277,7 @@ class BedrockLLM(BaseLLM):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        system_suffix: Optional[str] = None,
         out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
@@ -230,7 +290,9 @@ class BedrockLLM(BaseLLM):
         Args:
             context: Conversation context with messages
             tools: Optional list of tools available for the LLM
-            system_prompt: Optional system prompt
+            system_prompt: Optional system prompt (cacheable prefix)
+            system_suffix: Optional volatile context, sent after the
+                     prompt-cache breakpoint
             **kwargs: Additional arguments (max_tokens, temperature)
 
         Yields:
@@ -249,14 +311,12 @@ class BedrockLLM(BaseLLM):
         request_kwargs = {
             "modelId": self.model,
             "messages": messages,
-            "inferenceConfig": {
-                "maxTokens": kwargs.get("max_tokens", self.max_tokens),
-                "temperature": kwargs.get("temperature", self.temperature),
-            },
+            "inferenceConfig": self._inference_config(kwargs),
+            **self._additional_request_fields(),
         }
 
         if system_prompt:
-            request_kwargs["system"] = [{"text": system_prompt}]
+            request_kwargs["system"] = self._system_blocks(system_prompt, system_suffix)
 
         if tool_config:
             request_kwargs["toolConfig"] = tool_config
@@ -404,6 +464,9 @@ class BedrockLLM(BaseLLM):
                                 in_t=usage.get("inputTokens", 0),
                                 op_t=usage.get("outputTokens", 0),
                                 latency_ms=metrics.get("latencyMs", 0),
+                                cache_write_t=usage.get("cacheWriteInputTokens", 0)
+                                or 0,
+                                cache_read_t=usage.get("cacheReadInputTokens", 0) or 0,
                             )
                         break
 
