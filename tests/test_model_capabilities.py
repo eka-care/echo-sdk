@@ -103,14 +103,13 @@ class TestCapabilityMatrix:
 
 
 class TestAnthropicRequestShape:
-    def test_sonnet_5_omits_temperature_and_disables_thinking_by_default(self):
+    def test_sonnet_5_omits_temperature_and_uses_low_thinking_by_default(self):
         llm = anthropic_llm(SONNET_5)
         request = llm._build_request_kwargs([], {})
 
         assert "temperature" not in request
-        # Without this, an unconfigured Sonnet 5 call would silently start
-        # thinking where the same call on Sonnet 4.6 did not.
-        assert request["thinking"] == {"type": "disabled"}
+        assert request["thinking"] == {"type": "adaptive"}
+        assert request["extra_body"] == {"output_config": {"effort": "low"}}
 
     def test_sonnet_5_translates_budget_tokens_to_adaptive(self):
         llm = anthropic_llm(SONNET_5, ThinkingConfig(budget_tokens=4096))
@@ -203,12 +202,15 @@ class TestAssistantTurnSerialization:
 
 
 class TestBedrockRequestShape:
-    def test_sonnet_5_drops_temperature_and_disables_thinking(self):
+    def test_sonnet_5_drops_temperature_and_uses_low_thinking(self):
         llm = get_llm(LLMConfig(provider="bedrock", model="anthropic.claude-sonnet-5"))
 
         assert "temperature" not in llm._inference_config({})
         assert llm._additional_request_fields() == {
-            "additionalModelRequestFields": {"thinking": {"type": "disabled"}}
+            "additionalModelRequestFields": {
+                "thinking": {"type": "adaptive"},
+                "output_config": {"effort": "low"},
+            }
         }
 
     def test_older_claude_models_are_untouched(self):

@@ -80,9 +80,8 @@ class AnthropicLLM(BaseLLM):
         - effort + a model with the effort knob -> adaptive thinking + effort
         - budget_tokens + a model that still takes it (Claude 4.x) -> unchanged
         - either, on an adaptive-only model (Sonnet 5, Opus 4.7+) -> adaptive
-        - nothing configured -> thinking explicitly disabled where the model
-          would otherwise default it on, so an unconfigured call costs the same
-          on every model
+        - nothing configured -> on models that think by default and support the
+          effort knob (5-series), send adaptive thinking at low effort
 
         `output_config` goes through `extra_body`: it is a wire-level field the
         pinned anthropic SDK does not expose as a named parameter yet, and
@@ -92,10 +91,15 @@ class AnthropicLLM(BaseLLM):
         budget, effort = self.thinking_budget_tokens, self.thinking_effort
 
         if not budget and not effort:
-            # Disabling is only rejected above `high` effort, and no effort is
-            # sent here — so this is safe on every model that accepts it at all.
-            if caps.thinking_on_by_default and caps.can_disable_thinking:
-                return {"thinking": {"type": "disabled"}}
+            if (
+                caps.thinking_on_by_default
+                and caps.supports_effort
+                and caps.can_disable_thinking
+            ):
+                return {
+                    "thinking": {"type": "adaptive"},
+                    "extra_body": {"output_config": {"effort": "low"}},
+                }
             return {}
 
         if effort and caps.supports_effort and caps.supports_adaptive_thinking:

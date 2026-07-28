@@ -52,13 +52,21 @@ class BedrockLLM(BaseLLM):
         Model-specific fields Converse passes straight through to the model.
 
         The 5-series thinks by default when `thinking` is unset, where every
-        older model did not. Thinking is not configurable on this provider, so
-        it is switched off explicitly to keep an unconfigured Bedrock call
-        behaving — and costing — the same across model generations.
+        older model did not. For those models, set adaptive thinking with low
+        effort so the default is explicit and stable.
         """
         caps = self.capabilities
-        if caps.thinking_on_by_default and caps.can_disable_thinking:
-            return {"additionalModelRequestFields": {"thinking": {"type": "disabled"}}}
+        if (
+            caps.thinking_on_by_default
+            and caps.supports_effort
+            and caps.can_disable_thinking
+        ):
+            return {
+                "additionalModelRequestFields": {
+                    "thinking": {"type": "adaptive"},
+                    "output_config": {"effort": "low"},
+                }
+            }
         return {}
 
     @property
