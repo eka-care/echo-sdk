@@ -31,10 +31,20 @@ class AgentPrompt(BaseModel):
 
     Previously named ``AgentConfig``; renamed because it describes the
     prompt (persona + task), not runtime configuration of the agent.
+
+    ``persona`` + ``task`` are the *stable* half of the system prompt: the same
+    bytes for every session of an agent, so providers put the prompt-cache
+    breakpoint at their end. ``context`` is the *volatile* half — anything that
+    varies per user, per session, or per turn — and is sent after that
+    breakpoint, so it never invalidates the cached prefix.
     """
 
     persona: PromptPersona = PromptPersona()
     task: PromptTask
+    #: Per-request context (user, session, current time, …). Rendered after the
+    #: cache breakpoint. Agent instructions do not belong here — they go in
+    #: ``task``, where they get cached.
+    context: Optional[str] = None
 
 
 class PromptConfig(BaseModel):

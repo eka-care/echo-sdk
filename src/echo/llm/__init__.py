@@ -1,5 +1,6 @@
 """LLM module for Echo SDK."""
 
+from .base import prompt_cache_id
 from .config import (
     AnthropicEffort,
     GeminiThinkingLevel,
@@ -24,4 +25,5 @@ __all__ = [
     "VerboseResponseItem",
     "claude_capabilities",
     "get_llm",
+    "prompt_cache_id",
 ]

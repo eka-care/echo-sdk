@@ -4,6 +4,7 @@ Base LLM interface for Echo SDK.
 Provides a framework-agnostic interface for LLM calls.
 """
 
+import hashlib
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
@@ -25,6 +26,23 @@ from .schemas import LLMResponse, StreamEvent
 logger = logging.getLogger(__name__)
 
 
+def prompt_cache_id(system_prompt: Optional[str]) -> Optional[str]:
+    """Stable ID for a cacheable system prompt: the MD5 of its bytes.
+
+    Two requests share a prompt cache iff their cacheable prefixes are
+    byte-identical, so this hash *is* the cache identity — same agent (and
+    prompt version) across sessions gives one ID, different agents give
+    different ones. Providers that expose a cache-routing key (OpenAI's
+    ``prompt_cache_key``) send it; everywhere else it is a log field for
+    confirming which requests are meant to share an entry.
+
+    Not a security primitive — MD5 is used for its speed and short digest.
+    """
+    if not system_prompt:
+        return None
+    return hashlib.md5(system_prompt.encode("utf-8")).hexdigest()
+
+
 class BaseLLM(ABC):
     """Abstract base class for LLM providers."""
 
@@ -41,6 +59,7 @@ class BaseLLM(ABC):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        system_suffix: Optional[str] = None,
         out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Tuple[LLMResponse, ConversationContext]:
@@ -61,7 +80,11 @@ class BaseLLM(ABC):
                      The last message should be the user's query.
             tools: Optional list of BaseTool instances available for the LLM.
                    If provided, enables agentic loop with tool calling.
-            system_prompt: Optional system prompt for LLM behavior.
+            system_prompt: Optional system prompt for LLM behavior. Treated as
+                     the cacheable prefix — keep it byte-stable across sessions.
+            system_suffix: Optional volatile context (user, session, current
+                     time). Rendered after the prompt-cache breakpoint, so it
+                     may change per request without invalidating the cache.
             **kwargs: Additional provider-specific arguments.
 
         Returns:
@@ -164,6 +187,7 @@ class BaseLLM(ABC):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        system_suffix: Optional[str] = None,
         out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
@@ -176,7 +200,9 @@ class BaseLLM(ABC):
         Args:
             context: Conversation context with messages
             tools: Optional list of tools available for the LLM
-            system_prompt: Optional system prompt
+            system_prompt: Optional system prompt (cacheable prefix)
+            system_suffix: Optional volatile context, sent after the
+                     prompt-cache breakpoint
             **kwargs: Additional arguments (max_tokens, temperature)
 
         Yields:

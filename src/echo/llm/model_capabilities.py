@@ -49,6 +49,10 @@ class ClaudeCapabilities:
     can_disable_thinking: bool
     #: ``output_config.effort`` is accepted.
     supports_effort: bool
+    #: A prompt-cache breakpoint is accepted (Bedrock ``cachePoint``). Bedrock
+    #: rejects one outright on a model that cannot cache, so this gates the
+    #: block rather than merely tuning it.
+    supports_prompt_caching: bool
 
 
 # Everything Anthropic shipped before Opus 4.7, plus every non-Claude model.
@@ -59,6 +63,7 @@ _PRE_5_SURFACE = ClaudeCapabilities(
     thinking_on_by_default=False,
     can_disable_thinking=True,
     supports_effort=False,
+    supports_prompt_caching=False,
 )
 
 
@@ -104,6 +109,14 @@ def claude_capabilities(model: str) -> ClaudeCapabilities:
     # Effort went GA on Opus 4.5, then across the 4.6 tier and everything after.
     effort = strict or (major == 4 and (minor >= 6 or (family == "opus" and minor >= 5)))
 
+    # Prompt caching landed on Claude 3.5 Haiku and 3.7 Sonnet, and is on every
+    # Claude 4+ model. The rest of the 3.x line (3 Haiku/Sonnet/Opus, 3.5
+    # Sonnet) never got it.
+    caching = major >= 4 or (major, minor, family) in {
+        (3, 7, "sonnet"),
+        (3, 5, "haiku"),
+    }
+
     return ClaudeCapabilities(
         accepts_sampling_params=not strict,
         accepts_budget_tokens=budget,
@@ -114,4 +127,5 @@ def claude_capabilities(model: str) -> ClaudeCapabilities:
         # `disabled`; the param has to be omitted there.
         can_disable_thinking=family not in ("fable", "mythos"),
         supports_effort=effort,
+        supports_prompt_caching=caching,
     )

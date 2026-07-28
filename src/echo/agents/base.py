@@ -8,7 +8,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Literal, Optional
 
-from echo.llm import LLMConfig, get_llm
+from echo.llm import LLMConfig, get_llm, prompt_cache_id
 from echo.llm.schemas import StreamEvent, StreamEventType
 from echo.prompts.schemas import AgentPrompt
 from echo.prompts.templates import load_template
@@ -144,6 +144,11 @@ class BaseAgent(ABC):
         self.backstory = agent_prompt.persona.backstory
         self.task_description = agent_prompt.task.description
         self.expected_output = agent_prompt.task.expected_output
+        # Volatile per-request context, deliberately kept out of
+        # _build_system_prompt so the built prompt stays byte-stable across
+        # sessions and stays cacheable. Handed to the LLM separately, to be
+        # rendered after the prompt-cache breakpoint.
+        self.prompt_context = agent_prompt.context
 
         # Set LLM config, defaults to Bedrock Haiku
         self.llm_config = llm_config or LLMConfig()
@@ -307,6 +312,16 @@ class BaseAgent(ABC):
         system_prompt = "\n\n".join(system_prompt_parts)
         return system_prompt
 
+    def system_prompt_cache_id(self) -> Optional[str]:
+        """ID of the prompt-cache entry this agent's requests should hit.
+
+        Hosts log this to confirm cache sharing is working: two runs with the
+        same ID are expected to hit one entry, so a cache miss between them
+        points at the provider or the TTL, while differing IDs point at the
+        prompt. Reflects the active skill set, which is part of the prefix.
+        """
+        return prompt_cache_id(self._build_system_prompt(skip_goal=True))
+
     def _get_skill_content(self) -> List[str]:
         """Get skill sections in attention-friendly order.
 
@@ -365,6 +380,7 @@ class BaseAgent(ABC):
                     context=context,
                     tools=self._build_active_tools(),
                     system_prompt=system_prompt,
+                    system_suffix=self.prompt_context,
                     out_msg_id=out_msg_id,
                 )
                 if not llm_response.pending_context_reload:
@@ -416,6 +432,7 @@ class BaseAgent(ABC):
                     context=context,
                     tools=self._build_active_tools(),
                     system_prompt=system_prompt,
+                    system_suffix=self.prompt_context,
                     out_msg_id=out_msg_id,
                 ):
                     if event.type == StreamEventType.DONE:

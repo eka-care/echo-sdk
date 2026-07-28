@@ -47,6 +47,29 @@ class BedrockLLM(BaseLLM):
             config["temperature"] = overrides.get("temperature", self.temperature)
         return config
 
+    def _system_blocks(
+        self, system_prompt: str, system_suffix: Optional[str] = None
+    ) -> List[dict]:
+        """
+        Build the Converse ``system`` blocks, with a cache point if the model
+        supports one.
+
+        Caching is a byte-exact prefix match, so the ``cachePoint`` goes right
+        after the agent's stable persona + task and before ``system_suffix``,
+        which holds whatever varies per user, per session, or per turn. That
+        keeps one cache entry per agent prompt rather than one per session.
+
+        Models that predate Bedrock prompt caching reject a ``cachePoint``
+        block outright, so it is omitted for them and both halves are still
+        sent — same prompt, no caching.
+        """
+        blocks = [{"text": system_prompt}]
+        if self.capabilities.supports_prompt_caching:
+            blocks.append({"cachePoint": {"type": "default"}})
+        if system_suffix:
+            blocks.append({"text": system_suffix})
+        return blocks
+
     def _additional_request_fields(self) -> dict:
         """
         Model-specific fields Converse passes straight through to the model.
@@ -113,6 +136,8 @@ class BedrockLLM(BaseLLM):
                 in_t=usage.get("inputTokens", 0),
                 op_t=usage.get("outputTokens", 0),
                 latency_ms=response.get("metrics", {}).get("latencyMs", 0),
+                cache_write_t=usage.get("cacheWriteInputTokens", 0) or 0,
+                cache_read_t=usage.get("cacheReadInputTokens", 0) or 0,
             ),
         )
 
@@ -121,6 +146,7 @@ class BedrockLLM(BaseLLM):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        system_suffix: Optional[str] = None,
         out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Tuple[LLMResponse, ConversationContext]:
@@ -153,7 +179,7 @@ class BedrockLLM(BaseLLM):
         }
 
         if system_prompt:
-            request_kwargs["system"] = [{"text": system_prompt}]
+            request_kwargs["system"] = self._system_blocks(system_prompt, system_suffix)
 
         if tool_config:
             request_kwargs["toolConfig"] = tool_config
@@ -251,6 +277,7 @@ class BedrockLLM(BaseLLM):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        system_suffix: Optional[str] = None,
         out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
@@ -263,7 +290,9 @@ class BedrockLLM(BaseLLM):
         Args:
             context: Conversation context with messages
             tools: Optional list of tools available for the LLM
-            system_prompt: Optional system prompt
+            system_prompt: Optional system prompt (cacheable prefix)
+            system_suffix: Optional volatile context, sent after the
+                     prompt-cache breakpoint
             **kwargs: Additional arguments (max_tokens, temperature)
 
         Yields:
@@ -287,7 +316,7 @@ class BedrockLLM(BaseLLM):
         }
 
         if system_prompt:
-            request_kwargs["system"] = [{"text": system_prompt}]
+            request_kwargs["system"] = self._system_blocks(system_prompt, system_suffix)
 
         if tool_config:
             request_kwargs["toolConfig"] = tool_config
@@ -435,6 +464,9 @@ class BedrockLLM(BaseLLM):
                                 in_t=usage.get("inputTokens", 0),
                                 op_t=usage.get("outputTokens", 0),
                                 latency_ms=metrics.get("latencyMs", 0),
+                                cache_write_t=usage.get("cacheWriteInputTokens", 0)
+                                or 0,
+                                cache_read_t=usage.get("cacheReadInputTokens", 0) or 0,
                             )
                         break
 

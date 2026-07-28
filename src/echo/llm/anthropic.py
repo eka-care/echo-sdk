@@ -53,22 +53,35 @@ class AnthropicLLM(BaseLLM):
         return self._client
 
     @staticmethod
-    def _cached_system(system_prompt: str) -> List[dict]:
+    def _cached_system(
+        system_prompt: str, system_suffix: Optional[str] = None
+    ) -> List[dict]:
         """
-        Wrap the system prompt as a single cached text block.
+        Split the system prompt into a cached block and an uncached one.
 
-        The breakpoint goes on the system prompt because it's the stable prefix
-        (fixed per prompt/version/variables); the volatile user message stays
-        uncached. If the prompt is below the model's minimum cacheable size the
-        marker silently no-ops — harmless, so it's placed unconditionally.
+        Caching is a byte-exact prefix match, so the breakpoint has to sit at
+        the end of the content that is identical across sessions — the agent's
+        persona + task. Anything volatile (user context, session context, the
+        current time) goes in ``system_suffix``, which is rendered as a second,
+        unmarked block: it still reaches the model, but it lands *after* the
+        breakpoint and so leaves the cached prefix intact.
+
+        Put volatile text in ``system_prompt`` instead and every session gets
+        its own cache entry — a 100% miss rate that looks like working code.
+
+        If the prefix is below the model's minimum cacheable size the marker
+        silently no-ops — harmless, so it's placed unconditionally.
         """
-        return [
+        blocks = [
             {
                 "type": "text",
                 "text": system_prompt,
                 "cache_control": {"type": "ephemeral"},
             }
         ]
+        if system_suffix:
+            blocks.append({"type": "text", "text": system_suffix})
+        return blocks
 
     def _thinking_request_kwargs(self) -> dict:
         """
@@ -214,6 +227,7 @@ class AnthropicLLM(BaseLLM):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        system_suffix: Optional[str] = None,
         out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Tuple[LLMResponse, ConversationContext]:
@@ -242,7 +256,7 @@ class AnthropicLLM(BaseLLM):
         request_kwargs = self._build_request_kwargs(messages, kwargs)
 
         if system_prompt:
-            request_kwargs["system"] = self._cached_system(system_prompt)
+            request_kwargs["system"] = self._cached_system(system_prompt, system_suffix)
         if tool_schemas:
             request_kwargs["tools"] = tool_schemas
 
@@ -347,6 +361,7 @@ class AnthropicLLM(BaseLLM):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        system_suffix: Optional[str] = None,
         out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
@@ -382,7 +397,7 @@ class AnthropicLLM(BaseLLM):
         request_kwargs = self._build_request_kwargs(messages, kwargs)
 
         if system_prompt:
-            request_kwargs["system"] = self._cached_system(system_prompt)
+            request_kwargs["system"] = self._cached_system(system_prompt, system_suffix)
         if tool_schemas:
             request_kwargs["tools"] = tool_schemas
 

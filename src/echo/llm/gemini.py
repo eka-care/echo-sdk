@@ -141,6 +141,7 @@ class GeminiLLM(BaseLLM):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        system_suffix: Optional[str] = None,
         out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Tuple[LLMResponse, ConversationContext]:
@@ -171,7 +172,13 @@ class GeminiLLM(BaseLLM):
             )
 
         if system_prompt:
-            config.system_instruction = system_prompt
+            # Stable half first: Gemini's implicit caching matches on the
+            # request prefix, so volatile context has to trail it.
+            config.system_instruction = (
+                f"{system_prompt}\n\n{system_suffix}"
+                if system_suffix
+                else system_prompt
+            )
         if tool_config:
             config.tools = tool_config
             # Set tool calling mode: AUTO (default), ANY (must use tool), NONE
@@ -283,6 +290,7 @@ class GeminiLLM(BaseLLM):
         context: ConversationContext,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
+        system_suffix: Optional[str] = None,
         out_msg_id: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
@@ -311,7 +319,13 @@ class GeminiLLM(BaseLLM):
             )
 
         if system_prompt:
-            config.system_instruction = system_prompt
+            # Stable half first: Gemini's implicit caching matches on the
+            # request prefix, so volatile context has to trail it.
+            config.system_instruction = (
+                f"{system_prompt}\n\n{system_suffix}"
+                if system_suffix
+                else system_prompt
+            )
         if tool_config:
             config.tools = tool_config
             # Set tool calling mode: AUTO (default), ANY (must use tool), NONE
