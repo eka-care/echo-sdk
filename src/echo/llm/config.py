@@ -29,20 +29,45 @@ class GeminiThinkingLevel(str, Enum):
     HIGH = "high"
 
 
+class AnthropicEffort(str, Enum):
+    """
+    Anthropic adaptive-thinking effort levels (`output_config.effort`).
+
+    Not every model takes every level: `max` needs Claude 4.6 or newer and
+    `xhigh` needs Opus 4.7 / the 5-series. The provider drops a level the model
+    does not accept rather than letting the request 400.
+    """
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    XHIGH = "xhigh"
+    MAX = "max"
+
+
 class ThinkingConfig(BaseModel):
     """Configuration for LLM thinking/reasoning capabilities.
 
     Each provider has its own parameter:
     - OpenAI (GPT-5.x, o-series): reasoning_effort
-    - Anthropic (Claude 4/4.5): budget_tokens (min 1024)
+    - Anthropic (Claude 4.x): budget_tokens (min 1024)
+    - Anthropic (Claude Sonnet 5 / Opus 4.7+): effort
     - Gemini (Gemini 3+): level
+
+    For Anthropic, prefer `effort`: `budget_tokens` is rejected with a 400 on
+    Sonnet 5, Opus 4.7 and later. Setting `budget_tokens` on one of those models
+    still works — it is translated to adaptive thinking — but the token ceiling
+    it asks for cannot be honoured.
     """
 
     # OpenAI GPT-5.x and o-series
     reasoning_effort: Optional[ReasoningEffort] = None
 
-    # Anthropic Claude 4/4.5 extended thinking (minimum 1024)
+    # Anthropic Claude 4.x extended thinking (minimum 1024)
     budget_tokens: Optional[int] = None
+
+    # Anthropic adaptive thinking depth (Claude 4.5+ / Sonnet 5)
+    effort: Optional[AnthropicEffort] = None
 
     # Gemini 3+ thinking level
     level: Optional[GeminiThinkingLevel] = None
@@ -107,6 +132,12 @@ class LLMConfig(BaseModel):
                     )
                 if self.thinking.budget_tokens < 1024:
                     raise ValueError("thinking.budget_tokens must be at least 1024")
+
+            # Validate effort (Anthropic only)
+            if self.thinking.effort is not None and self.provider != "anthropic":
+                raise ValueError(
+                    f"thinking.effort is only supported for Anthropic, not {self.provider}"
+                )
 
             # Validate level (Gemini only)
             if self.thinking.level is not None and self.provider != "gemini":

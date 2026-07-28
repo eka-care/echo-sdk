@@ -4,7 +4,7 @@ Anthropic LLM implementation.
 
 import logging
 import uuid
-from typing import Any, AsyncGenerator, List, Optional, Tuple
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 import orjson
 
@@ -21,6 +21,7 @@ from echo.tools.core.schemas import ControlFlow, Observability
 
 from .base import BaseLLM
 from .config import LLMConfig
+from .model_capabilities import claude_capabilities
 from .schemas import LLMResponse, StreamEvent, StreamEventType, VerboseResponseItem
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,11 @@ class AnthropicLLM(BaseLLM):
         self.thinking_budget_tokens = (
             config.thinking.budget_tokens if config.thinking else None
         )
+        self.thinking_effort = config.thinking.effort if config.thinking else None
+        # What this model's request surface accepts — sampling params, which
+        # thinking form, whether thinking is on when unset. See
+        # model_capabilities for the per-generation rules.
+        self.capabilities = claude_capabilities(config.model)
 
     @property
     def client(self):
@@ -64,13 +70,108 @@ class AnthropicLLM(BaseLLM):
             }
         ]
 
-    def _supports_extended_thinking(self) -> bool:
-        """Check if model supports extended thinking."""
-        # Claude 4/4.5 models support extended thinking
-        return any(
-            x in self.model
-            for x in ["claude-sonnet-4-6", "claude-haiku-4", "claude-opus-4"]
+    def _thinking_request_kwargs(self) -> dict:
+        """
+        Build the thinking-related request fields for this model.
+
+        The thinking parameter is not portable across Claude generations, so the
+        configured intent is mapped onto whatever the target model accepts:
+
+        - effort + a model with the effort knob -> adaptive thinking + effort
+        - budget_tokens + a model that still takes it (Claude 4.x) -> unchanged
+        - either, on an adaptive-only model (Sonnet 5, Opus 4.7+) -> adaptive
+        - nothing configured -> thinking explicitly disabled where the model
+          would otherwise default it on, so an unconfigured call costs the same
+          on every model
+
+        `output_config` goes through `extra_body`: it is a wire-level field the
+        pinned anthropic SDK does not expose as a named parameter yet, and
+        `extra_body` keeps working once it does.
+        """
+        caps = self.capabilities
+        budget, effort = self.thinking_budget_tokens, self.thinking_effort
+
+        if not budget and not effort:
+            # Disabling is only rejected above `high` effort, and no effort is
+            # sent here — so this is safe on every model that accepts it at all.
+            if caps.thinking_on_by_default and caps.can_disable_thinking:
+                return {"thinking": {"type": "disabled"}}
+            return {}
+
+        if effort and caps.supports_effort and caps.supports_adaptive_thinking:
+            return {
+                "thinking": {"type": "adaptive"},
+                "extra_body": {"output_config": {"effort": effort.value}},
+            }
+
+        if budget and caps.accepts_budget_tokens:
+            return {"thinking": {"type": "enabled", "budget_tokens": budget}}
+
+        if caps.supports_adaptive_thinking:
+            logger.info(
+                "Model %s does not accept thinking.budget_tokens; using adaptive "
+                "thinking instead. Set thinking.effort to control depth.",
+                self.model,
+            )
+            return {"thinking": {"type": "adaptive"}}
+
+        logger.warning(
+            "Model %s does not support thinking; ignoring thinking config.",
+            self.model,
         )
+        return {}
+
+    def _build_request_kwargs(
+        self, messages: List[dict], overrides: Dict[str, Any]
+    ) -> dict:
+        """Assemble the per-model base request shared by invoke and streaming."""
+        request_kwargs = {
+            "model": self.model,
+            "max_tokens": overrides.get("max_tokens", self.max_tokens),
+            "messages": messages,
+        }
+
+        # Sonnet 5 / Opus 4.7+ removed the sampling parameters and 400 on them,
+        # so temperature is dropped rather than passed through.
+        if self.capabilities.accepts_sampling_params:
+            request_kwargs["temperature"] = overrides.get(
+                "temperature", self.temperature
+            )
+
+        request_kwargs.update(self._thinking_request_kwargs())
+        return request_kwargs
+
+    @staticmethod
+    def _serialize_block(block) -> Optional[dict]:
+        """
+        Serialize one response content block back into request form.
+
+        The assistant turn is echoed back from these blocks rather than rebuilt
+        from the parsed `Message`: rebuilding drops `thinking` blocks, and
+        Anthropic rejects a tool-use turn whose thinking blocks were stripped
+        while thinking is on. Thinking stays out of `ConversationContext` — it
+        is wire-only state for the current tool loop, not conversation history.
+        """
+        if block.type == "text":
+            return {"type": "text", "text": block.text}
+        if block.type == "tool_use":
+            return {
+                "type": "tool_use",
+                "id": block.id,
+                "name": block.name,
+                "input": block.input,
+            }
+        if block.type == "thinking":
+            # `thinking` is an empty string when display is omitted (the default
+            # on the 5-series); the block still has to go back unmodified.
+            return {
+                "type": "thinking",
+                "thinking": block.thinking,
+                "signature": block.signature,
+            }
+        if block.type == "redacted_thinking":
+            return {"type": "redacted_thinking", "data": block.data}
+        return None
 
     def _parse_response(self, response, msg_id: str) -> Message:
         """Parse Anthropic response into a Message."""
@@ -132,20 +233,9 @@ class AnthropicLLM(BaseLLM):
         # Build messages from context
         messages = context.to_anthropic_messages()
 
-        # Build the base request kwargs
-        request_kwargs = {
-            "model": self.model,
-            "max_tokens": kwargs.get("max_tokens", self.max_tokens),
-            "temperature": kwargs.get("temperature", self.temperature),
-            "messages": messages,
-        }
-
-        # Extended thinking for Claude 4/4.5
-        if self.thinking_budget_tokens and self._supports_extended_thinking():
-            request_kwargs["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": self.thinking_budget_tokens,
-            }
+        # Build the base request kwargs (model-specific: sampling params and the
+        # thinking form differ by Claude generation)
+        request_kwargs = self._build_request_kwargs(messages, kwargs)
 
         if system_prompt:
             request_kwargs["system"] = self._cached_system(system_prompt)
@@ -169,7 +259,14 @@ class AnthropicLLM(BaseLLM):
             assistant_msg = self._parse_response(response, msg_id)
             final_response.usage = assistant_msg.usage
             context.add_message(assistant_msg)
-            messages.append(assistant_msg.to_anthropic_message())
+            # Echo the raw blocks (thinking included) rather than re-serializing
+            # the parsed message — see _serialize_block.
+            wire_blocks = [
+                b
+                for b in (self._serialize_block(block) for block in response.content)
+                if b is not None
+            ]
+            messages.append({"role": "assistant", "content": wire_blocks})
 
             tool_results = []
             interrupt = False  # a tool changed loaded state → recompute & rerun
@@ -276,20 +373,9 @@ class AnthropicLLM(BaseLLM):
 
         messages = context.to_anthropic_messages()
 
-        # Build the base request kwargs
-        request_kwargs = {
-            "model": self.model,
-            "max_tokens": kwargs.get("max_tokens", self.max_tokens),
-            "temperature": kwargs.get("temperature", self.temperature),
-            "messages": messages,
-        }
-
-        # Extended thinking for Claude 4/4.5
-        if self.thinking_budget_tokens and self._supports_extended_thinking():
-            request_kwargs["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": self.thinking_budget_tokens,
-            }
+        # Build the base request kwargs (model-specific: sampling params and the
+        # thinking form differ by Claude generation)
+        request_kwargs = self._build_request_kwargs(messages, kwargs)
 
         if system_prompt:
             request_kwargs["system"] = self._cached_system(system_prompt)
@@ -306,6 +392,11 @@ class AnthropicLLM(BaseLLM):
                 # Use streaming API
                 with self.client.messages.stream(**request_kwargs) as stream:
                     blocks = {}  # block index to content block
+                    # Block index to request-form block, rebuilt as the stream
+                    # completes. Kept separate from content_items because
+                    # thinking must go back on the wire but never enters the
+                    # persisted context.
+                    wire_blocks = {}
                     content_items = []
                     tool_results = []
                     interrupt = False  # a tool changed loaded state → recompute
@@ -358,6 +449,17 @@ class AnthropicLLM(BaseLLM):
                                             "tool_name": block.name,
                                         },
                                     )
+                            elif block.type in ("thinking", "redacted_thinking"):
+                                # Accumulated for the wire echo only — no
+                                # StreamEvent, since thinking is not shown to
+                                # callers and carries no text when display is
+                                # omitted (the 5-series default).
+                                blocks[block_id] = {
+                                    "type": block.type,
+                                    "thinking": getattr(block, "thinking", "") or "",
+                                    "signature": getattr(block, "signature", "") or "",
+                                    "data": getattr(block, "data", "") or "",
+                                }
                             else:
                                 blocks[block_id] = {
                                     "type": "text",
@@ -373,6 +475,10 @@ class AnthropicLLM(BaseLLM):
                                 yield StreamEvent(
                                     type=StreamEventType.TEXT, text=delta.text
                                 )
+                            elif delta.type == "thinking_delta":
+                                blocks[block_id]["thinking"] += delta.thinking
+                            elif delta.type == "signature_delta":
+                                blocks[block_id]["signature"] += delta.signature
                             elif delta.type == "input_json_delta":
                                 blocks[block_id]["input_json"] += delta.partial_json
                                 # forward the partial json fragment as a streaming TOOL_CALL_ARGS event so any partial data consumers like ag-ui etc
@@ -389,7 +495,19 @@ class AnthropicLLM(BaseLLM):
 
                         elif event.type == "content_block_stop":
                             block_id = event.index
-                            if blocks[block_id]["type"] == "tool":
+                            block_type = blocks[block_id]["type"]
+                            if block_type == "thinking":
+                                wire_blocks[block_id] = {
+                                    "type": "thinking",
+                                    "thinking": blocks[block_id]["thinking"],
+                                    "signature": blocks[block_id]["signature"],
+                                }
+                            elif block_type == "redacted_thinking":
+                                wire_blocks[block_id] = {
+                                    "type": "redacted_thinking",
+                                    "data": blocks[block_id]["data"],
+                                }
+                            elif block_type == "tool":
                                 # Tool block complete - parse input and execute
                                 input_json_str = blocks[block_id]["input_json"]
                                 parsed_input = (
@@ -403,6 +521,12 @@ class AnthropicLLM(BaseLLM):
                                     tool_input=parsed_input,
                                 )
                                 content_items.append((block_id, tool_call))
+                                wire_blocks[block_id] = {
+                                    "type": "tool_use",
+                                    "id": tool_call.tool_id,
+                                    "name": tool_call.tool_name,
+                                    "input": parsed_input,
+                                }
                                 tool_res = await self.invoke_tool(
                                     tool_map, tool_call, context.tool_context
                                 )
@@ -424,12 +548,15 @@ class AnthropicLLM(BaseLLM):
                                     if tool_res.control_flow == ControlFlow.INTERRUPT:
                                         interrupt = True
                             else:
-                                content_items.append(
-                                    (
-                                        block_id,
-                                        TextMessage(text=blocks[block_id]["text"]),
-                                    )
-                                )
+                                text = blocks[block_id]["text"]
+                                content_items.append((block_id, TextMessage(text=text)))
+                                if text:
+                                    # An empty text block is rejected on replay,
+                                    # so it never goes back on the wire.
+                                    wire_blocks[block_id] = {
+                                        "type": "text",
+                                        "text": text,
+                                    }
 
                         elif event.type == "message_delta":
                             # Running output-token count; input + cache tokens
@@ -467,7 +594,14 @@ class AnthropicLLM(BaseLLM):
                 )
                 final_response.usage = usage_metrics
                 context.add_message(llm_message)
-                messages.append(llm_message.to_anthropic_message())
+                # Echo the streamed blocks (thinking included) rather than
+                # re-serializing the parsed message — see _serialize_block.
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": [wire_blocks[i] for i in sorted(wire_blocks)],
+                    }
+                )
 
                 if tool_results:
                     results_msg = Message(

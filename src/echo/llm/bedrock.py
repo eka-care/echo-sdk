@@ -21,6 +21,7 @@ from echo.tools.core.schemas import ControlFlow, Observability
 
 from .base import BaseLLM
 from .config import LLMConfig
+from .model_capabilities import claude_capabilities
 from .schemas import LLMResponse, StreamEvent, StreamEventType, VerboseResponseItem
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,32 @@ class BedrockLLM(BaseLLM):
         super().__init__(config)
         self.region = config.region or "ap-south-1"
         self._client = None
+        # Bedrock Claude IDs (`anthropic.claude-sonnet-5`) carry the same
+        # per-generation request rules as the first-party API. Non-Claude models
+        # resolve to the permissive pre-5 surface, so this is a no-op for them.
+        self.capabilities = claude_capabilities(config.model)
+
+    def _inference_config(self, overrides: dict) -> dict:
+        """Build `inferenceConfig` for this model."""
+        config = {"maxTokens": overrides.get("max_tokens", self.max_tokens)}
+        # Sonnet 5 / Opus 4.7+ removed the sampling parameters and 400 on them.
+        if self.capabilities.accepts_sampling_params:
+            config["temperature"] = overrides.get("temperature", self.temperature)
+        return config
+
+    def _additional_request_fields(self) -> dict:
+        """
+        Model-specific fields Converse passes straight through to the model.
+
+        The 5-series thinks by default when `thinking` is unset, where every
+        older model did not. Thinking is not configurable on this provider, so
+        it is switched off explicitly to keep an unconfigured Bedrock call
+        behaving — and costing — the same across model generations.
+        """
+        caps = self.capabilities
+        if caps.thinking_on_by_default and caps.can_disable_thinking:
+            return {"additionalModelRequestFields": {"thinking": {"type": "disabled"}}}
+        return {}
 
     @property
     def client(self):
@@ -113,10 +140,8 @@ class BedrockLLM(BaseLLM):
         request_kwargs = {
             "modelId": self.model,
             "messages": messages,
-            "inferenceConfig": {
-                "maxTokens": kwargs.get("max_tokens", self.max_tokens),
-                "temperature": kwargs.get("temperature", self.temperature),
-            },
+            "inferenceConfig": self._inference_config(kwargs),
+            **self._additional_request_fields(),
         }
 
         if system_prompt:
@@ -249,10 +274,8 @@ class BedrockLLM(BaseLLM):
         request_kwargs = {
             "modelId": self.model,
             "messages": messages,
-            "inferenceConfig": {
-                "maxTokens": kwargs.get("max_tokens", self.max_tokens),
-                "temperature": kwargs.get("temperature", self.temperature),
-            },
+            "inferenceConfig": self._inference_config(kwargs),
+            **self._additional_request_fields(),
         }
 
         if system_prompt:
