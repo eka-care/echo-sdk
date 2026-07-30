@@ -92,6 +92,27 @@ class SarvamTranscriber(BaseTranscriber):
             return "unknown"  # Sarvam auto-detects
         return _LANGUAGE_MAP.get(lang.lower(), lang)
 
+    @staticmethod
+    async def _load_audio(audio: AudioInput) -> bytes:
+        """Materialize the AudioInput contract (bytes | file path | http(s) URL)
+        into bytes.
+
+        The sarvamai SDK only accepts file bytes/handles — it does not fetch
+        remote URLs — so URL inputs are downloaded here first. httpx is used
+        because it is already a dependency of sarvamai itself.
+        """
+        if isinstance(audio, bytes):
+            return audio
+        if audio.startswith(("http://", "https://")):
+            import httpx
+
+            async with httpx.AsyncClient(timeout=60.0) as http:
+                resp = await http.get(audio)
+                resp.raise_for_status()
+                return resp.content
+        with open(audio, "rb") as f:
+            return f.read()
+
     async def transcribe(
         self,
         audio: AudioInput,
@@ -100,19 +121,7 @@ class SarvamTranscriber(BaseTranscriber):
         **kwargs: Any,
     ) -> TranscriptionResponse:
         try:
-            if isinstance(audio, str):
-                if audio.startswith(("http://", "https://")):
-                    import httpx
-
-                    async with httpx.AsyncClient(timeout=60.0) as http:
-                        resp = await http.get(audio)
-                        resp.raise_for_status()
-                        content = resp.content
-                else:
-                    with open(audio, "rb") as f:
-                        content = f.read()
-            else:
-                content = audio
+            content = await self._load_audio(audio)
 
             mime = (mime_type or "audio/mp4").split(";")[0].strip().lower()
             ext = _EXT_BY_MIME.get(mime, "m4a")
