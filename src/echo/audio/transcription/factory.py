@@ -65,7 +65,7 @@ def get_transcriber(config: TranscriberConfig) -> BaseTranscriber:
             return SarvamTranscriber(config)
         except ImportError as e:
             raise ImportError(
-                "httpx is required for Sarvam transcription. "
+                "sarvamai is required for Sarvam transcription. "
                 "Install with: pip install 'echo-sdk[sarvam]'"
             ) from e
 

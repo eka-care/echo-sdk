@@ -22,8 +22,17 @@ def test_sarvam_provider_registered(monkeypatch):
     config = TranscriberConfig(provider="sarvam", language="hi")
     assert config.model == "saarika:v2.5"
     t = get_transcriber(config)
-    assert t.base_url == "https://api.sarvam.ai"
+    assert t.base_url is None  # SDK default endpoint
     assert t._language_code() == "hi-IN"
+
+
+def test_sarvam_base_url_override(monkeypatch):
+    monkeypatch.setenv("SARVAM_API_KEY", "test-key")
+    from echo.audio.transcription.config import TranscriberConfig
+    from echo.audio.transcription.factory import get_transcriber
+
+    t = get_transcriber(TranscriberConfig(provider="sarvam", base_url="https://proxy.local"))
+    assert t.client._client_wrapper.get_environment().base == "https://proxy.local"
 
 
 def test_openai_compatible_llm(monkeypatch):
