@@ -1,6 +1,6 @@
 [project]
 name = "echo"
-version = "0.3.6"
+version = "0.4.0"
 description = "Framework-agnostic medical Agent building SDK with multi-provider LLM and Tools and Skills support"
 readme = "README.md"
 license = "MIT"
@@ -37,6 +37,7 @@ gemini = ["google-genai>=1.0.0"]
 
 # Audio Transcription Providers
 ekacare = ["httpx>=0.27.0"]
+sarvam = ["httpx>=0.27.0"]
 
 # Framework Integrations
 crewai = ["crewai>=1.6.1"]

@@ -58,7 +58,18 @@ def get_transcriber(config: TranscriberConfig) -> BaseTranscriber:
                 "Install with: pip install 'echo-sdk[ekacare]'"
             ) from e
 
+    if provider == "sarvam":
+        try:
+            from .sarvam import SarvamTranscriber
+
+            return SarvamTranscriber(config)
+        except ImportError as e:
+            raise ImportError(
+                "httpx is required for Sarvam transcription. "
+                "Install with: pip install 'echo-sdk[sarvam]'"
+            ) from e
+
     raise ValueError(
         f"Unsupported transcription provider: {provider!r}. "
-        f"Supported: gemini, ekacare"
+        f"Supported: gemini, ekacare, sarvam"
     )

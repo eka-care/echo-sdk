@@ -17,7 +17,7 @@ EKACARE_LANGUAGES = ["en-IN", "en-US", "hi"]
 
 
 class TranscriberConfig(BaseModel):
-    provider: Literal["gemini", "ekacare"] = Field(
+    provider: Literal["gemini", "ekacare", "sarvam"] = Field(
         default_factory=lambda: os.getenv("ECHO_DEFAULT_TRANSCRIBER_PROVIDER", "gemini")
     )
     model: str = Field(
@@ -26,6 +26,7 @@ class TranscriberConfig(BaseModel):
         )
     )
     api_key: Optional[str] = None
+    base_url: Optional[str] = None  # provider endpoint override (proxies, self-hosted)
     language: Optional[str] = None
     temperature: float = 0.0
     max_output_tokens: int = 8192
@@ -33,6 +34,9 @@ class TranscriberConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_model(self):
+        if self.provider == "sarvam" and self.model.startswith("models/gemini"):
+            # the env default model is gemini-shaped; swap in sarvam's default
+            self.model = os.getenv("SARVAM_STT_MODEL", "saarika:v2.5")
         if self.provider == "gemini" and self.model not in GEMINI_AUDIO_MODELS:
             raise ValueError(
                 f"Model {self.model!r} not supported for provider 'gemini'. "

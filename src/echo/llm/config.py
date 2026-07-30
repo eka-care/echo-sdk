@@ -76,8 +76,8 @@ class ThinkingConfig(BaseModel):
 class LLMConfig(BaseModel):
     """LLM provider configuration. Defaults to Bedrock Haiku."""
 
-    provider: Literal["bedrock", "openai", "anthropic", "gemini"] = os.getenv(
-        "ECHO_DEFAULT_LLM_PROVIDER", "bedrock"
+    provider: Literal["bedrock", "openai", "anthropic", "gemini", "openai_compatible"] = (
+        os.getenv("ECHO_DEFAULT_LLM_PROVIDER", "bedrock")
     )
     model: str = os.getenv(
         "ECHO_DEFAULT_LLM_MODEL", "anthropic.claude-3-haiku-20240307-v1:0"
@@ -90,6 +90,8 @@ class LLMConfig(BaseModel):
 
     # Optional user-provided API keys (falls back to env vars if None)
     api_key: Optional[str] = None  # For OpenAI, Anthropic, Gemini
+    # OpenAI-compatible endpoint (vLLM / Ollama / proxies); env: ECHO_LLM_BASE_URL
+    base_url: Optional[str] = None
     aws_access_key_id: Optional[str] = None  # For Bedrock
     aws_secret_access_key: Optional[str] = None  # For Bedrock
 

@@ -33,7 +33,12 @@ def get_prompt_provider(reset: bool = False) -> BasePromptProvider:
 
             _provider_instance = LangfusePromptProvider()
         else:
-            raise ValueError(f"Unsupported provider: {provider}")
+            if provider == "file":
+                from .file_provider import FilePromptProvider
+
+                _provider_instance = FilePromptProvider()
+            else:
+                raise ValueError(f"Unsupported provider: {provider}")
 
     return _provider_instance
 
