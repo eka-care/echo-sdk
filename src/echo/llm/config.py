@@ -98,6 +98,16 @@ class LLMConfig(BaseModel):
     # Thinking/reasoning configuration (provider-specific)
     thinking: Optional[ThinkingConfig] = None
 
+    # Prompt caching (Anthropic direct API; ignored by other providers).
+    # cache_ttl: lifetime of cache entries — "5m" (default) or "1h" (writes
+    # cost 2x instead of 1.25x; worth it when reuse spans minutes, e.g. chat
+    # turns). cache_messages: also cache the conversation up to the latest
+    # message, so agentic-loop iterations and follow-up turns reread history
+    # at 0.1x instead of resending it at full price. Off by default because a
+    # single-call run would pay the write with nothing reading it back.
+    cache_ttl: Optional[Literal["5m", "1h"]] = None
+    cache_messages: bool = False
+
     def to_crewai_llm(self) -> Any:
         """Convert to CrewAI LLM instance."""
         try:
