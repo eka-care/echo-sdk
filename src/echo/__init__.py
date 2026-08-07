@@ -24,3 +24,15 @@ __all__ = [
     "llm",
     "tools",
 ]
+
+# --- Backwards-compatible aliases (pre-0.3.7 names) --------------------------
+# AgentConfig/PersonaConfig/TaskConfig were renamed to AgentPrompt/
+# PromptPersona/PromptTask. Keep the old names importable so consumers pinned
+# to the 0.3.x API (e.g. voice2rx-based backends) upgrade without changes.
+from .prompts.schemas import (  # noqa: E402
+    AgentPrompt as AgentConfig,
+    PromptPersona as PersonaConfig,
+    PromptTask as TaskConfig,
+)
+
+__all__ += ["AgentConfig", "PersonaConfig", "TaskConfig"]

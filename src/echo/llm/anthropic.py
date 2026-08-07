@@ -52,9 +52,14 @@ class AnthropicLLM(BaseLLM):
             self._client = anthropic.Anthropic(api_key=self.config.api_key)
         return self._client
 
-    @staticmethod
+    def _cache_control(self) -> dict:
+        """The cache_control marker, honouring the configured TTL."""
+        if self.config.cache_ttl:
+            return {"type": "ephemeral", "ttl": self.config.cache_ttl}
+        return {"type": "ephemeral"}
+
     def _cached_system(
-        system_prompt: str, system_suffix: Optional[str] = None
+        self, system_prompt: str, system_suffix: Optional[str] = None
     ) -> List[dict]:
         """
         Split the system prompt into a cached block and an uncached one.
@@ -76,12 +81,33 @@ class AnthropicLLM(BaseLLM):
             {
                 "type": "text",
                 "text": system_prompt,
-                "cache_control": {"type": "ephemeral"},
+                "cache_control": self._cache_control(),
             }
         ]
         if system_suffix:
             blocks.append({"type": "text", "text": system_suffix})
         return blocks
+
+    def _mark_message_tail(self, messages: List[dict]) -> None:
+        """
+        Place a cache breakpoint on the last content block of the last message.
+
+        Called once, before the agentic loop, so the conversation as first sent
+        (history + transcript + latest user message) is cached and every later
+        iteration rereads it at 0.1x — only the assistant/tool-result blocks
+        appended during the loop are processed fresh. Marking inside the loop
+        instead would add a marker per iteration and overrun Anthropic's
+        4-breakpoint limit.
+
+        On the next turn of a multi-turn conversation the tail moves, but
+        Anthropic matches the longest previously cached prefix, so the prior
+        turn's entry is still read and only the delta is written.
+        """
+        if not messages:
+            return
+        content = messages[-1].get("content")
+        if isinstance(content, list) and content and isinstance(content[-1], dict):
+            content[-1]["cache_control"] = self._cache_control()
 
     def _thinking_request_kwargs(self) -> dict:
         """
@@ -156,6 +182,13 @@ class AnthropicLLM(BaseLLM):
             )
 
         request_kwargs.update(self._thinking_request_kwargs())
+
+        # 1h cache entries shipped behind this beta flag; it remains accepted
+        # now that the TTL is GA, and keeps older API behaviour working.
+        if self.config.cache_ttl == "1h":
+            request_kwargs["extra_headers"] = {
+                "anthropic-beta": "extended-cache-ttl-2025-04-11"
+            }
         return request_kwargs
 
     @staticmethod
@@ -250,6 +283,8 @@ class AnthropicLLM(BaseLLM):
 
         # Build messages from context
         messages = context.to_anthropic_messages()
+        if self.config.cache_messages:
+            self._mark_message_tail(messages)
 
         # Build the base request kwargs (model-specific: sampling params and the
         # thinking form differ by Claude generation)
@@ -391,6 +426,8 @@ class AnthropicLLM(BaseLLM):
             tool_map = {tool.name: tool for tool in tools}
 
         messages = context.to_anthropic_messages()
+        if self.config.cache_messages:
+            self._mark_message_tail(messages)
 
         # Build the base request kwargs (model-specific: sampling params and the
         # thinking form differ by Claude generation)

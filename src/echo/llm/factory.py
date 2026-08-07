@@ -86,8 +86,18 @@ def get_llm(config: LLMConfig) -> BaseLLM:
                 "Install with: pip install google-genai"
             )
 
+    elif provider == "openai_compatible":
+        try:
+            from .openai_compatible import OpenAICompatibleLLM
+
+            return OpenAICompatibleLLM(config)
+        except ImportError:
+            raise ImportError(
+                "openai is required for openai_compatible. Install with: pip install openai"
+            )
+
     else:
         raise ValueError(
             f"Unsupported LLM provider: {provider}. "
-            f"Supported providers: bedrock, openai, anthropic, gemini"
+            f"Supported providers: bedrock, openai, anthropic, gemini, openai_compatible"
         )
