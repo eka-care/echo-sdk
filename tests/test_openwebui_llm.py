@@ -12,6 +12,7 @@ ENV_VARS = [
     "OPENWEBUI_CHAT_TEMPLATE_KWARGS",
     "OPENWEBUI_VERIFY_SSL",
     "OPENWEBUI_CA_BUNDLE",
+    "OPENWEBUI_DISABLE_TOOLS",
     "ECHO_LLM_VERIFY_SSL",
     "ECHO_LLM_CA_BUNDLE",
     "ECHO_LLM_BASE_URL",
@@ -296,3 +297,76 @@ def test_openwebui_client_with_verify_disabled(monkeypatch):
     llm = OpenWebUILLM(_config(base_url="https://bharatai.gov.in", api_key="k"))
     client = llm.client  # constructs OpenAI client with custom http_client
     assert str(client.base_url).rstrip("/") == "https://bharatai.gov.in/api"
+
+
+# ---------------------------------------------------------------- tools toggle
+
+
+class _FakeTool:
+    name = "get_weather"
+
+    def to_openai_schema(self):
+        return {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "Get weather for a city",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+
+
+def test_tools_enabled_by_default():
+    llm = OpenWebUILLM(_config(base_url="http://owui:3000", api_key="k"))
+    assert llm._tools_enabled() is True
+    from echo.models.user_conversation import ConversationContext
+
+    fake = _FakeOpenAIClient()
+    llm._client = fake
+    asyncio.run(
+        llm.invoke(ConversationContext(), tools=[_FakeTool()], system_prompt="s")
+    )
+    assert "tools" in fake.chat.completions.calls[0]
+
+
+@pytest.mark.parametrize("raw", ["true", "1", "yes", "on"])
+def test_disable_tools_env(monkeypatch, raw, caplog):
+    monkeypatch.setenv("OPENWEBUI_DISABLE_TOOLS", raw)
+    from echo.models.user_conversation import ConversationContext
+
+    llm = OpenWebUILLM(_config(base_url="http://owui:3000", api_key="k"))
+    fake = _FakeOpenAIClient()
+    llm._client = fake
+    with caplog.at_level("WARNING"):
+        asyncio.run(
+            llm.invoke(ConversationContext(), tools=[_FakeTool()], system_prompt="s")
+        )
+    assert "tools" not in fake.chat.completions.calls[0]
+    assert any("OPENWEBUI_DISABLE_TOOLS" in r.message for r in caplog.records)
+
+
+def test_disable_tools_false_value_keeps_tools(monkeypatch):
+    monkeypatch.setenv("OPENWEBUI_DISABLE_TOOLS", "false")
+    llm = OpenWebUILLM(_config(base_url="http://owui:3000", api_key="k"))
+    assert llm._tools_enabled() is True
+
+
+def test_openai_compatible_ignores_disable_tools(monkeypatch):
+    monkeypatch.setenv("OPENWEBUI_DISABLE_TOOLS", "true")
+    from echo.llm.openai_compatible import OpenAICompatibleLLM
+    from echo.models.user_conversation import ConversationContext
+
+    llm = OpenAICompatibleLLM(
+        LLMConfig(
+            provider="openai_compatible",
+            model="m",
+            base_url="http://vllm:8000/v1",
+            api_key="k",
+        )
+    )
+    fake = _FakeOpenAIClient()
+    llm._client = fake
+    asyncio.run(
+        llm.invoke(ConversationContext(), tools=[_FakeTool()], system_prompt="s")
+    )
+    assert "tools" in fake.chat.completions.calls[0]

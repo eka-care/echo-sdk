@@ -28,6 +28,11 @@ Hybrid-reasoning open models (GLM, Qwen3, ...) served behind Open WebUI accept
 
 Nothing is sent when neither is set.
 
+``OPENWEBUI_DISABLE_TOOLS=true`` stops tool schemas from being sent at all —
+temporary escape hatch for serving stacks launched without
+``--enable-auto-tool-choice`` (vLLM 400s any request carrying tools). Agentic
+flows degrade to plain-text generation while it is set.
+
 TLS for instances behind a private/gov CA or self-signed cert:
 ``OPENWEBUI_CA_BUNDLE=/path/ca.pem`` verifies against that CA (recommended);
 ``OPENWEBUI_VERIFY_SSL=false`` disables verification (dev/testing only).
@@ -101,6 +106,17 @@ class OpenWebUILLM(OpenAICompatibleLLM):
                 client_kwargs["http_client"] = http_client
             self._client = OpenAI(**client_kwargs)
         return self._client
+
+    def _tools_enabled(self) -> bool:
+        raw = os.getenv("OPENWEBUI_DISABLE_TOOLS", "")
+        if raw.strip() and _parse_bool(raw):
+            logger.warning(
+                "OPENWEBUI_DISABLE_TOOLS is set — tool schemas are NOT sent to "
+                "the model; structured/agentic tool flows degrade to plain "
+                "text. Unset it once the serving stack enables tool calling."
+            )
+            return False
+        return True
 
     def _extra_body(self):
         template_kwargs = {}

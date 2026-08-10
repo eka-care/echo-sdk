@@ -83,6 +83,12 @@ class OpenAILLM(BaseLLM):
         ``extra_body`` (e.g. vLLM ``chat_template_kwargs``). None = omit."""
         return None
 
+    def _tools_enabled(self) -> bool:
+        """Whether to send tool schemas with the request. Providers can turn
+        this off when the serving stack rejects requests carrying tools —
+        agentic flows then degrade to plain text generation."""
+        return True
+
     def _parse_response(self, response, msg_id: str) -> Message:
         """Parse OpenAI response into a Message."""
         message = response.choices[0].message
@@ -131,10 +137,10 @@ class OpenAILLM(BaseLLM):
         elicitations = []
         msg_id = out_msg_id or str(uuid.uuid4())
 
-        # Build tool schemas if tools provided
+        # Build tool schemas if tools provided (unless the provider disables them)
         openai_tools = None
         tool_map = {}
-        if tools:
+        if tools and self._tools_enabled():
             openai_tools = [tool.to_openai_schema() for tool in tools]
             tool_map = {tool.name: tool for tool in tools}
 
@@ -298,10 +304,10 @@ class OpenAILLM(BaseLLM):
         """
         msg_id = out_msg_id or str(uuid.uuid4())
 
-        # Build tool schemas if tools provided
+        # Build tool schemas if tools provided (unless the provider disables them)
         openai_tools = None
         tool_map = {}
-        if tools:
+        if tools and self._tools_enabled():
             openai_tools = [tool.to_openai_schema() for tool in tools]
             tool_map = {tool.name: tool for tool in tools}
 
