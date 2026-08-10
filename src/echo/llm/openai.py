@@ -78,6 +78,11 @@ class OpenAILLM(BaseLLM):
         """Check if model supports reasoning_effort parameter."""
         return self.model.startswith(("gpt-5", "o1", "o3", "o4-mini"))
 
+    def _extra_body(self) -> Optional[dict]:
+        """Provider-specific non-OpenAI body params, sent via the SDK's
+        ``extra_body`` (e.g. vLLM ``chat_template_kwargs``). None = omit."""
+        return None
+
     def _parse_response(self, response, msg_id: str) -> Message:
         """Parse OpenAI response into a Message."""
         message = response.choices[0].message
@@ -175,6 +180,11 @@ class OpenAILLM(BaseLLM):
 
         if openai_tools:
             request_kwargs["tools"] = openai_tools
+
+        # Provider-specific non-OpenAI body params (e.g. chat_template_kwargs)
+        extra_body = self._extra_body()
+        if extra_body:
+            request_kwargs["extra_body"] = extra_body
 
         # No tools = single iteration
         iterations = self.max_iterations if openai_tools else 1
@@ -338,6 +348,11 @@ class OpenAILLM(BaseLLM):
 
         if openai_tools:
             request_kwargs["tools"] = openai_tools
+
+        # Provider-specific non-OpenAI body params (e.g. chat_template_kwargs)
+        extra_body = self._extra_body()
+        if extra_body:
+            request_kwargs["extra_body"] = extra_body
 
         iterations = self.max_iterations if openai_tools else 1
 

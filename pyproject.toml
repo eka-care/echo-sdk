@@ -34,10 +34,13 @@ bedrock = ["boto3>=1.38.23"]
 openai = ["openai>=1.0.0"]
 anthropic = ["anthropic>=0.18.0"]
 gemini = ["google-genai>=1.0.0"]
+openwebui = ["openai>=1.0.0"]
 
 # Audio Transcription Providers
 ekacare = ["httpx>=0.27.0"]
 sarvam = ["sarvamai>=0.1.20"]
+openai-compatible = ["httpx>=0.27.0"]
+model-api = ["httpx>=0.27.0"]
 
 # Framework Integrations
 crewai = ["crewai>=1.6.1"]

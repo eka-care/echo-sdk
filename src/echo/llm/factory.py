@@ -96,8 +96,17 @@ def get_llm(config: LLMConfig) -> BaseLLM:
                 "openai is required for openai_compatible. Install with: pip install openai"
             )
 
+    elif provider == "openwebui":
+        try:
+            from .openwebui import OpenWebUILLM
+            return OpenWebUILLM(config)
+        except ImportError:
+            raise ImportError(
+                "openai is required for openwebui. Install with: pip install openai"
+            )
+
     else:
         raise ValueError(
             f"Unsupported LLM provider: {provider}. "
-            f"Supported providers: bedrock, openai, anthropic, gemini, openai_compatible"
+            f"Supported providers: bedrock, openai, anthropic, gemini, openai_compatible, openwebui"
         )

@@ -76,9 +76,9 @@ class ThinkingConfig(BaseModel):
 class LLMConfig(BaseModel):
     """LLM provider configuration. Defaults to Bedrock Haiku."""
 
-    provider: Literal["bedrock", "openai", "anthropic", "gemini", "openai_compatible"] = (
-        os.getenv("ECHO_DEFAULT_LLM_PROVIDER", "bedrock")
-    )
+    provider: Literal[
+        "bedrock", "openai", "anthropic", "gemini", "openai_compatible", "openwebui"
+    ] = os.getenv("ECHO_DEFAULT_LLM_PROVIDER", "bedrock")
     model: str = os.getenv(
         "ECHO_DEFAULT_LLM_MODEL", "anthropic.claude-3-haiku-20240307-v1:0"
     )
