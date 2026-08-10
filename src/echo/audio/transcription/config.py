@@ -15,6 +15,24 @@ GEMINI_AUDIO_MODELS = [
 
 EKACARE_LANGUAGES = ["en-IN", "en-US", "hi"]
 
+# Sarvam realtime streaming socket (SarvamRealtimeClient). The REST transcriber
+# uses the saarika models and its own language handling; these apply to the
+# socket only, and it is the only model the realtime endpoint accepts.
+SARVAM_REALTIME_MODEL = "saaras:v3-realtime"
+
+# Mirrors sarvamai's SpeechToTextRealtimeStreamingLanguageCode. Note both of
+# these are the OPPOSITE of the older /speech-to-text/ws socket: auto-detect is
+# "auto" (not "unknown") and Odia is "or-IN" (not "od-IN").
+SARVAM_REALTIME_LANGUAGES = [
+    "auto", "en-IN", "hi-IN", "bn-IN", "kn-IN", "ml-IN", "mr-IN", "or-IN",
+    "pa-IN", "ta-IN", "te-IN", "gu-IN", "as-IN", "ur-IN", "ne-IN", "kok-IN",
+    "ks-IN", "sd-IN", "sa-IN", "sat-IN", "mni-IN", "brx-IN", "mai-IN", "doi-IN",
+]
+
+# stream_type: "fast" trades accuracy for latency, "simulated" is for replaying
+# files at wall-clock speed. "balanced" is what Sarvam's own example uses.
+SARVAM_STREAM_TYPES = ["fast", "balanced", "simulated"]
+
 
 class TranscriberConfig(BaseModel):
     provider: Literal["gemini", "ekacare", "sarvam"] = Field(

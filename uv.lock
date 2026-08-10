@@ -849,6 +849,7 @@ dependencies = [
     { name = "orjson" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "sarvamai" },
 ]
 
 [package.optional-dependencies]
@@ -901,6 +902,7 @@ postgres = [
 ]
 sarvam = [
     { name = "sarvamai" },
+    { name = "websockets" },
 ]
 
 [package.metadata]
@@ -931,7 +933,9 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "python-dotenv", marker = "extra == 'dev'", specifier = ">=1.2.1" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "sarvamai", marker = "extra == 'sarvam'", specifier = ">=0.1.20" },
+    { name = "sarvamai", specifier = ">=0.1.30" },
+    { name = "sarvamai", marker = "extra == 'sarvam'", specifier = ">=0.1.30" },
+    { name = "websockets", marker = "extra == 'sarvam'", specifier = ">=12.0" },
 ]
 provides-extras = ["bedrock", "openai", "anthropic", "gemini", "ekacare", "sarvam", "crewai", "mcp", "postgres", "langfuse", "ag-ui", "all", "dev"]
 
@@ -3417,7 +3421,7 @@ wheels = [
 
 [[package]]
 name = "sarvamai"
-version = "0.1.28"
+version = "0.1.30"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -3426,9 +3430,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/23/44/57a7a37be64953bb0bec9f674e92a9f8fb7070ce6aeb44c6f22720458b40/sarvamai-0.1.28.tar.gz", hash = "sha256:bc52f0c849e429d1a4493e49b1b4b65bf06965f3936d4eb6ee3da3130452e7ea", size = 139022, upload-time = "2026-04-20T08:05:12.185Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/a3/28325a6abd8e0c83e392bfadb06c1bb6d26cd134de2473e38caae745d8eb/sarvamai-0.1.30.tar.gz", hash = "sha256:e53b78ea695351102e880f727715a94cca4d2c7730d9663160066b7618e964d4", size = 175653, upload-time = "2026-08-03T12:34:05.792Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/84/90/95cd195a3a2ae9a9973c6a05705207e8dd97b5aea90339bc24343cb54850/sarvamai-0.1.28-py3-none-any.whl", hash = "sha256:52e71c0a0f521552d4d948ec452699b44554a56e64ee354b14da2efc9d9046b3", size = 269335, upload-time = "2026-04-20T08:05:10.712Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/65/45947ce30e325433e2960f428361e62bd4a69ce422c03c27191300204046/sarvamai-0.1.30-py3-none-any.whl", hash = "sha256:ab586559e041b8dbaa03a536d6c23383f6cda86e9ab9509519408cd54ea66f09", size = 361482, upload-time = "2026-08-03T12:34:04.623Z" },
 ]
 
 [[package]]
