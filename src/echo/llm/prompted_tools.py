@@ -121,3 +121,64 @@ def tool_result_as_text(tool_id: str, result: Any) -> str:
         except Exception:
             result = str(result)
     return f'<tool_result id="{tool_id}">\n{result}\n</tool_result>'
+
+
+class StreamingToolCallScanner:
+    """Incremental <tool_call> extraction so calls surface mid-stream.
+
+    feed(piece) -> (prose_to_emit_now, completed_calls). Prose is released
+    with a holdback so a partial opening tag never leaks; block text is held
+    until its closing tag, then parsed. Malformed blocks come back as prose.
+    """
+
+    START = "<tool_call>"
+    END = "</tool_call>"
+
+    def __init__(self):
+        self._buf = ""
+        self._prose = []
+
+    def feed(self, piece):
+        self._buf += piece
+        prose_out = []
+        calls = []
+        while True:
+            start = self._buf.find(self.START)
+            if start == -1:
+                keep = 0
+                for k in range(len(self.START) - 1, 0, -1):
+                    if self._buf.endswith(self.START[:k]):
+                        keep = k
+                        break
+                emit = self._buf[: len(self._buf) - keep]
+                if emit:
+                    prose_out.append(emit)
+                self._buf = self._buf[len(self._buf) - keep :]
+                break
+            if start > 0:
+                prose_out.append(self._buf[:start])
+                self._buf = self._buf[start:]
+            end = self._buf.find(self.END)
+            if end == -1:
+                break
+            block = self._buf[: end + len(self.END)]
+            self._buf = self._buf[end + len(self.END) :]
+            _, parsed = parse_prompted_tool_calls(block)
+            if parsed:
+                calls.extend(parsed)
+            else:
+                prose_out.append(block)
+        text = "".join(prose_out)
+        if text:
+            self._prose.append(text)
+        return text, calls
+
+    def flush(self):
+        tail = self._buf
+        self._buf = ""
+        if tail:
+            self._prose.append(tail)
+        return tail
+
+    def prose_text(self):
+        return "".join(self._prose).strip()

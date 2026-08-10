@@ -405,6 +405,46 @@ class OpenAILLM(BaseLLM):
                 tool_calls_map = {}  # index -> {id, name, arguments}
                 usage_metrics = None
 
+                prompted_scanner = None
+                if prompted:
+                    from .prompted_tools import StreamingToolCallScanner
+
+                    prompted_scanner = StreamingToolCallScanner()
+
+                def _prompted_call_events(call):
+                    tool = tool_map.get(call["name"])
+                    visible = (
+                        tool.observability == Observability.VISIBLE
+                        if tool
+                        else True
+                    )
+                    args_json = orjson.dumps(call["arguments"]).decode()
+                    tool_calls_map[len(tool_calls_map)] = {
+                        "id": call["id"],
+                        "name": call["name"],
+                        "arguments": args_json,
+                        "visible": visible,
+                    }
+                    if not visible:
+                        return []
+                    return [
+                        StreamEvent(
+                            type=StreamEventType.TOOL_CALL_START,
+                            details={
+                                "tool_id": call["id"],
+                                "tool_name": call["name"],
+                            },
+                        ),
+                        StreamEvent(
+                            type=StreamEventType.TOOL_CALL_ARGS,
+                            details={
+                                "tool_id": call["id"],
+                                "tool_name": call["name"],
+                                "delta": args_json,
+                            },
+                        ),
+                    ]
+
                 for chunk in stream:
                     if not chunk.choices:
                         # Usage info comes in final chunk with empty choices
@@ -425,6 +465,17 @@ class OpenAILLM(BaseLLM):
                             yield StreamEvent(
                                 type=StreamEventType.TEXT, text=delta.content
                             )
+                        else:
+                            prose_piece, completed = prompted_scanner.feed(
+                                delta.content
+                            )
+                            if prose_piece:
+                                yield StreamEvent(
+                                    type=StreamEventType.TEXT, text=prose_piece
+                                )
+                            for call in completed:
+                                for ev in _prompted_call_events(call):
+                                    yield ev
 
                     # Handle tool calls
                     if delta.tool_calls:
@@ -484,48 +535,11 @@ class OpenAILLM(BaseLLM):
 
                 # -- end of stream --
 
-                if prompted and accumulated_text:
-                    # Prompted mode: split the reply into prose + tool calls;
-                    # calls join tool_calls_map exactly like native deltas and
-                    # the execution path below runs unchanged.
-                    from .prompted_tools import parse_prompted_tool_calls
-
-                    prose, parsed_calls = parse_prompted_tool_calls(
-                        accumulated_text
-                    )
-                    if prose:
-                        yield StreamEvent(type=StreamEventType.TEXT, text=prose)
-                    accumulated_text = prose
-                    for call in parsed_calls:
-                        tool = tool_map.get(call["name"])
-                        visible = (
-                            tool.observability == Observability.VISIBLE
-                            if tool
-                            else True
-                        )
-                        args_json = orjson.dumps(call["arguments"]).decode()
-                        tool_calls_map[len(tool_calls_map)] = {
-                            "id": call["id"],
-                            "name": call["name"],
-                            "arguments": args_json,
-                            "visible": visible,
-                        }
-                        if visible:
-                            yield StreamEvent(
-                                type=StreamEventType.TOOL_CALL_START,
-                                details={
-                                    "tool_id": call["id"],
-                                    "tool_name": call["name"],
-                                },
-                            )
-                            yield StreamEvent(
-                                type=StreamEventType.TOOL_CALL_ARGS,
-                                details={
-                                    "tool_id": call["id"],
-                                    "tool_name": call["name"],
-                                    "delta": args_json,
-                                },
-                            )
+                if prompted and prompted_scanner is not None:
+                    tail = prompted_scanner.flush()
+                    if tail:
+                        yield StreamEvent(type=StreamEventType.TEXT, text=tail)
+                    accumulated_text = prompted_scanner.prose_text()
 
                 # Build content items
                 content_items = []
