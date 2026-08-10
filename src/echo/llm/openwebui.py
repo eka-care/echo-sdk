@@ -27,6 +27,12 @@ Hybrid-reasoning open models (GLM, Qwen3, ...) served behind Open WebUI accept
   object for anything else; the boolean flag above wins on overlap.
 
 Nothing is sent when neither is set.
+
+TLS for instances behind a private/gov CA or self-signed cert:
+``OPENWEBUI_CA_BUNDLE=/path/ca.pem`` verifies against that CA (recommended);
+``OPENWEBUI_VERIFY_SSL=false`` disables verification (dev/testing only).
+Generic ``ECHO_LLM_CA_BUNDLE`` / ``ECHO_LLM_VERIFY_SSL`` also work here and on
+the openai_compatible provider.
 """
 
 from __future__ import annotations
@@ -36,7 +42,7 @@ import logging
 import os
 
 from .config import LLMConfig
-from .openai_compatible import OpenAICompatibleLLM
+from .openai_compatible import OpenAICompatibleLLM, build_custom_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -86,12 +92,18 @@ class OpenWebUILLM(OpenAICompatibleLLM):
                     "401 unless the instance runs with auth disabled."
                 )
                 api_key = "not-needed"
-            self._client = OpenAI(api_key=api_key, base_url=self.base_url)
+            client_kwargs = {"api_key": api_key, "base_url": self.base_url}
+            http_client = build_custom_http_client(
+                ("OPENWEBUI_VERIFY_SSL", "ECHO_LLM_VERIFY_SSL"),
+                ("OPENWEBUI_CA_BUNDLE", "ECHO_LLM_CA_BUNDLE"),
+            )
+            if http_client is not None:
+                client_kwargs["http_client"] = http_client
+            self._client = OpenAI(**client_kwargs)
         return self._client
 
     def _extra_body(self):
         template_kwargs = {}
-
         raw = os.getenv("OPENWEBUI_CHAT_TEMPLATE_KWARGS")
         if raw:
             try:

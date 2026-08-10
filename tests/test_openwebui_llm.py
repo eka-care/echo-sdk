@@ -10,6 +10,10 @@ ENV_VARS = [
     "OPENWEBUI_API_KEY",
     "OPENWEBUI_ENABLE_THINKING",
     "OPENWEBUI_CHAT_TEMPLATE_KWARGS",
+    "OPENWEBUI_VERIFY_SSL",
+    "OPENWEBUI_CA_BUNDLE",
+    "ECHO_LLM_VERIFY_SSL",
+    "ECHO_LLM_CA_BUNDLE",
     "ECHO_LLM_BASE_URL",
     "ECHO_LLM_API_KEY",
 ]
@@ -217,3 +221,78 @@ def test_openai_compatible_never_sends_extra_body(monkeypatch):
     llm._client = fake
     asyncio.run(llm.invoke(ConversationContext(), system_prompt="s"))
     assert "extra_body" not in fake.chat.completions.calls[0]
+
+
+# ------------------------------------------------------------------ TLS config
+
+
+def test_ssl_verify_default_true():
+    from echo.llm.openai_compatible import resolve_ssl_verify
+
+    assert resolve_ssl_verify(("OPENWEBUI_VERIFY_SSL",), ("OPENWEBUI_CA_BUNDLE",)) is True
+
+
+def test_ssl_verify_disabled(monkeypatch, caplog):
+    from echo.llm.openai_compatible import resolve_ssl_verify
+
+    monkeypatch.setenv("OPENWEBUI_VERIFY_SSL", "false")
+    with caplog.at_level("WARNING"):
+        result = resolve_ssl_verify(
+            ("OPENWEBUI_VERIFY_SSL", "ECHO_LLM_VERIFY_SSL"),
+            ("OPENWEBUI_CA_BUNDLE",),
+        )
+    assert result is False
+    assert any("DISABLED" in r.message for r in caplog.records)
+
+
+def test_ssl_ca_bundle_context(monkeypatch):
+    import echo.llm.openai_compatible as oc
+
+    sentinel = object()
+    seen = {}
+
+    def fake_ctx(cafile=None):
+        seen["cafile"] = cafile
+        return sentinel
+
+    monkeypatch.setattr(oc.ssl, "create_default_context", fake_ctx)
+    monkeypatch.setenv("OPENWEBUI_CA_BUNDLE", "/certs/bharatai-ca.pem")
+    result = oc.resolve_ssl_verify(
+        ("OPENWEBUI_VERIFY_SSL",), ("OPENWEBUI_CA_BUNDLE", "ECHO_LLM_CA_BUNDLE")
+    )
+    assert result is sentinel
+    assert seen["cafile"] == "/certs/bharatai-ca.pem"
+
+
+def test_ssl_disable_wins_over_ca_bundle(monkeypatch):
+    from echo.llm.openai_compatible import resolve_ssl_verify
+
+    monkeypatch.setenv("OPENWEBUI_VERIFY_SSL", "false")
+    monkeypatch.setenv("OPENWEBUI_CA_BUNDLE", "/certs/ca.pem")
+    assert (
+        resolve_ssl_verify(("OPENWEBUI_VERIFY_SSL",), ("OPENWEBUI_CA_BUNDLE",)) is False
+    )
+
+
+def test_build_custom_http_client(monkeypatch):
+    import httpx
+
+    from echo.llm.openai_compatible import build_custom_http_client
+
+    assert (
+        build_custom_http_client(("OPENWEBUI_VERIFY_SSL",), ("OPENWEBUI_CA_BUNDLE",))
+        is None
+    )
+    monkeypatch.setenv("OPENWEBUI_VERIFY_SSL", "false")
+    client = build_custom_http_client(
+        ("OPENWEBUI_VERIFY_SSL",), ("OPENWEBUI_CA_BUNDLE",)
+    )
+    assert isinstance(client, httpx.Client)
+    assert client.timeout.read == 600.0
+
+
+def test_openwebui_client_with_verify_disabled(monkeypatch):
+    monkeypatch.setenv("OPENWEBUI_VERIFY_SSL", "false")
+    llm = OpenWebUILLM(_config(base_url="https://bharatai.gov.in", api_key="k"))
+    client = llm.client  # constructs OpenAI client with custom http_client
+    assert str(client.base_url).rstrip("/") == "https://bharatai.gov.in/api"
