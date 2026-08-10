@@ -107,16 +107,103 @@ class OpenWebUILLM(OpenAICompatibleLLM):
             self._client = OpenAI(**client_kwargs)
         return self._client
 
-    def _tools_enabled(self) -> bool:
+    def _tool_mode(self) -> str:
+        """OPENWEBUI_TOOL_MODE: native (default) | prompted | off.
+        Back-compat: OPENWEBUI_DISABLE_TOOLS=true means off when unset."""
+        mode = (os.getenv("OPENWEBUI_TOOL_MODE") or "").strip().lower()
+        if mode in ("native", "prompted", "off"):
+            return mode
         raw = os.getenv("OPENWEBUI_DISABLE_TOOLS", "")
         if raw.strip() and _parse_bool(raw):
+            return "off"
+        return "native"
+
+    def _tools_enabled(self) -> bool:
+        mode = self._tool_mode()
+        if mode == "off":
             logger.warning(
-                "OPENWEBUI_DISABLE_TOOLS is set — tool schemas are NOT sent to "
-                "the model; structured/agentic tool flows degrade to plain "
-                "text. Unset it once the serving stack enables tool calling."
+                "OpenWebUI tool mode is OFF — tool schemas are NOT sent and "
+                "not emulated; agentic flows degrade to plain text. Use "
+                "OPENWEBUI_TOOL_MODE=prompted for tool calling on serving "
+                "stacks without native support."
             )
-            return False
-        return True
+        return mode == "native"
+
+    def _prompted_tools(self) -> bool:
+        return self._tool_mode() == "prompted"
+
+    def _augment_system_prompt(self, system_prompt, tools):
+        from .prompted_tools import render_tool_protocol
+
+        return (system_prompt or "") + render_tool_protocol(tools)
+
+    def _parse_response(self, response, msg_id):
+        msg = super()._parse_response(response, msg_id)
+        if self._tool_mode() != "prompted":
+            return msg
+        from echo.models.user_conversation import TextMessage, ToolCall
+
+        from .prompted_tools import parse_prompted_tool_calls
+
+        new_content = []
+        for item in msg.content:
+            if isinstance(item, TextMessage):
+                prose, calls = parse_prompted_tool_calls(item.text)
+                if prose:
+                    new_content.append(TextMessage(text=prose))
+                for call in calls:
+                    new_content.append(
+                        ToolCall(
+                            tool_id=call["id"],
+                            tool_name=call["name"],
+                            tool_input=call["arguments"],
+                        )
+                    )
+            else:
+                new_content.append(item)
+        if new_content:
+            msg.content = new_content
+        return msg
+
+    def _context_messages(self, context) -> list:
+        if self._tool_mode() != "prompted":
+            return context.to_openai_messages()
+        wire = []
+        for msg in context.messages:
+            wire.extend(self._messages_for_wire(msg))
+        return wire
+
+    def _messages_for_wire(self, msg) -> list:
+        if self._tool_mode() != "prompted":
+            return msg.to_openai_messages()
+        from echo.models.user_conversation import (
+            MessageRole,
+            TextMessage,
+            ToolCall,
+            ToolResult,
+        )
+
+        from .prompted_tools import tool_calls_as_text, tool_result_as_text
+
+        if msg.role == MessageRole.ASSISTANT:
+            calls = [i for i in msg.content if isinstance(i, ToolCall)]
+            if calls:
+                text = "".join(
+                    i.text for i in msg.content if isinstance(i, TextMessage)
+                )
+                return [
+                    {"role": "assistant", "content": tool_calls_as_text(text, calls)}
+                ]
+            return msg.to_openai_messages()
+        if msg.role == MessageRole.TOOL:
+            parts = [
+                tool_result_as_text(item.tool_id, item.result)
+                for item in msg.content
+                if isinstance(item, ToolResult)
+            ]
+            if parts:
+                return [{"role": "user", "content": "\n".join(parts)}]
+        return msg.to_openai_messages()
 
     def _extra_body(self):
         template_kwargs = {}

@@ -1,5 +1,6 @@
 """Tests for the Open WebUI LLM provider."""
 
+import orjson
 import pytest
 
 from echo.llm import LLMConfig, get_llm
@@ -13,6 +14,7 @@ ENV_VARS = [
     "OPENWEBUI_VERIFY_SSL",
     "OPENWEBUI_CA_BUNDLE",
     "OPENWEBUI_DISABLE_TOOLS",
+    "OPENWEBUI_TOOL_MODE",
     "ECHO_LLM_VERIFY_SSL",
     "ECHO_LLM_CA_BUNDLE",
     "ECHO_LLM_BASE_URL",
@@ -342,7 +344,7 @@ def test_disable_tools_env(monkeypatch, raw, caplog):
             llm.invoke(ConversationContext(), tools=[_FakeTool()], system_prompt="s")
         )
     assert "tools" not in fake.chat.completions.calls[0]
-    assert any("OPENWEBUI_DISABLE_TOOLS" in r.message for r in caplog.records)
+    assert any("tool mode is OFF" in r.message for r in caplog.records)
 
 
 def test_disable_tools_false_value_keeps_tools(monkeypatch):
@@ -370,3 +372,220 @@ def test_openai_compatible_ignores_disable_tools(monkeypatch):
         llm.invoke(ConversationContext(), tools=[_FakeTool()], system_prompt="s")
     )
     assert "tools" in fake.chat.completions.calls[0]
+
+
+# ------------------------------------------------------------- prompted tools
+
+
+from echo.llm.prompted_tools import (
+    parse_prompted_tool_calls,
+    render_tool_protocol,
+    tool_calls_as_text,
+    tool_result_as_text,
+)
+from echo.tools.core import BaseTool
+
+
+class _EchoTool(BaseTool):
+    name = "add_list"
+    description = "Add a list section."
+
+    def __init__(self):
+        self.runs = []
+
+    @property
+    def input_schema(self):
+        return {
+            "type": "object",
+            "properties": {"key": {"type": "string"}},
+            "required": ["key"],
+        }
+
+    async def run(self, tool_context=None, **kwargs):
+        self.runs.append(kwargs)
+        return f"ok — section {kwargs.get('key')!r} emitted via add_list"
+
+
+def _call_block(name="add_list", args='{"key": "attendees"}'):
+    return f'<tool_call>{{"name": "{name}", "arguments": {args}}}</tool_call>'
+
+
+def test_parse_single_call_with_prose():
+    prose, calls = parse_prompted_tool_calls("Adding sections now.\n" + _call_block())
+    assert prose == "Adding sections now."
+    assert len(calls) == 1
+    assert calls[0]["name"] == "add_list"
+    assert calls[0]["arguments"] == {"key": "attendees"}
+    assert calls[0]["id"].startswith("ptc_")
+
+
+def test_parse_multiple_and_fenced():
+    text = (
+        _call_block(args='{"key": "a"}')
+        + "\n<tool_call>```json\n{\"name\": \"add_table\", \"arguments\": {\"key\": \"b\"}}\n```</tool_call>"
+    )
+    prose, calls = parse_prompted_tool_calls(text)
+    assert prose == ""
+    assert [c["name"] for c in calls] == ["add_list", "add_table"]
+
+
+def test_parse_stringified_arguments():
+    payload = orjson.dumps(
+        {"name": "add_list", "arguments": orjson.dumps({"key": "x"}).decode()}
+    ).decode()
+    _, calls = parse_prompted_tool_calls(f"<tool_call>{payload}</tool_call>")
+    assert calls[0]["arguments"] == {"key": "x"}
+
+
+def test_parse_malformed_stays_in_prose():
+    text = "<tool_call>not json at all</tool_call>"
+    prose, calls = parse_prompted_tool_calls(text)
+    assert calls == []
+    assert "not json at all" in prose
+
+
+def test_protocol_block_contains_schema():
+    block = render_tool_protocol([_EchoTool()])
+    assert "<tool_call>" in block
+    assert "add_list" in block
+    assert '"required":["key"]' in block or '"required": ["key"]' in block
+
+
+def test_result_serialization_roundtrip():
+    from echo.models.user_conversation import ToolCall
+
+    tc = ToolCall(tool_id="ptc_1", tool_name="add_list", tool_input={"key": "a"})
+    text = tool_calls_as_text("intro", [tc])
+    assert "intro" in text and '"id":"ptc_1"' in text.replace(" ", "")
+    result = tool_result_as_text("ptc_1", "ok")
+    assert 'id="ptc_1"' in result and "ok" in result
+
+
+class _ScriptedClient:
+    """chat.completions.create returns scripted non-stream responses."""
+
+    def __init__(self, texts):
+        self.calls = []
+        outer = self
+
+        class _Completions:
+            def create(self, **kwargs):
+                outer.calls.append(kwargs)
+                return _fake_response(texts[len(outer.calls) - 1])
+
+        self.chat = SimpleNamespace(completions=_Completions())
+
+
+def _prompted_llm(monkeypatch):
+    monkeypatch.setenv("OPENWEBUI_TOOL_MODE", "prompted")
+    return OpenWebUILLM(_config(base_url="http://owui:3000", api_key="k"))
+
+
+def test_prompted_invoke_full_loop(monkeypatch):
+    from echo.models.user_conversation import ConversationContext
+
+    llm = _prompted_llm(monkeypatch)
+    tool = _EchoTool()
+    client = _ScriptedClient(["Doing it.\n" + _call_block(), "done"])
+    llm._client = client
+
+    response, ctx = asyncio.run(
+        llm.invoke(ConversationContext(), tools=[tool], system_prompt="Structure the note.")
+    )
+
+    first, second = client.calls
+    # native tools never on the wire; protocol in the system prompt instead
+    assert "tools" not in first and "tools" not in second
+    assert "Tool calling protocol" in first["messages"][0]["content"]
+    assert "add_list" in first["messages"][0]["content"]
+    # the tool actually executed with parsed args
+    assert tool.runs == [{"key": "attendees"}]
+    # second turn carries the assistant call + user-role tool result as text
+    roles = [m["role"] for m in second["messages"]]
+    assert "tool" not in roles
+    assistant_texts = [m["content"] for m in second["messages"] if m["role"] == "assistant"]
+    assert any("<tool_call>" in t for t in assistant_texts)
+    user_texts = [m["content"] for m in second["messages"] if m["role"] == "user"]
+    assert any("<tool_result" in t and "emitted" in t for t in user_texts)
+    assert response.text == "done"
+
+
+def _stream_chunks(text):
+    def chunk(content):
+        return SimpleNamespace(
+            choices=[SimpleNamespace(delta=SimpleNamespace(content=content, tool_calls=None))],
+            usage=None,
+        )
+
+    mid = len(text) // 2
+    return [
+        chunk(text[:mid]),
+        chunk(text[mid:]),
+        SimpleNamespace(choices=[], usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1)),
+    ]
+
+
+class _ScriptedStreamClient:
+    def __init__(self, texts):
+        self.calls = []
+        outer = self
+
+        class _Completions:
+            def create(self, **kwargs):
+                outer.calls.append(kwargs)
+                return iter(_stream_chunks(texts[len(outer.calls) - 1]))
+
+        self.chat = SimpleNamespace(completions=_Completions())
+
+
+def test_prompted_stream_suppresses_raw_json_and_emits_tool_events(monkeypatch):
+    from echo.llm.schemas import StreamEventType
+    from echo.models.user_conversation import ConversationContext
+
+    llm = _prompted_llm(monkeypatch)
+    tool = _EchoTool()
+    llm._client = _ScriptedStreamClient(["Working.\n" + _call_block(), "done"])
+
+    async def collect():
+        events = []
+        async for ev in llm.invoke_stream(
+            ConversationContext(), tools=[tool], system_prompt="s"
+        ):
+            events.append(ev)
+        return events
+
+    events = asyncio.run(collect())
+    types = [e.type for e in events]
+    text_payload = "".join(e.text or "" for e in events if e.type == StreamEventType.TEXT)
+    assert "<tool_call>" not in text_payload
+    assert "Working." in text_payload
+    assert StreamEventType.TOOL_CALL_START in types
+    assert StreamEventType.TOOL_CALL_ARGS in types
+    assert StreamEventType.TOOL_CALL_END in types
+    assert types[-1] == StreamEventType.DONE
+    assert tool.runs == [{"key": "attendees"}]
+
+
+def test_mode_off_sends_nothing(monkeypatch):
+    from echo.models.user_conversation import ConversationContext
+
+    monkeypatch.setenv("OPENWEBUI_TOOL_MODE", "off")
+    llm = OpenWebUILLM(_config(base_url="http://owui:3000", api_key="k"))
+    tool = _EchoTool()
+    client = _ScriptedClient(["plain text"])
+    llm._client = client
+    asyncio.run(llm.invoke(ConversationContext(), tools=[tool], system_prompt="s"))
+    assert "tools" not in client.calls[0]
+    assert "Tool calling protocol" not in client.calls[0]["messages"][0]["content"]
+    assert tool.runs == []
+
+
+def test_mode_native_default_untouched(monkeypatch):
+    from echo.models.user_conversation import ConversationContext
+
+    llm = OpenWebUILLM(_config(base_url="http://owui:3000", api_key="k"))
+    tool = _EchoTool()
+    client = _ScriptedClient(["hello"])
+    llm._client = client
+    asyncio.run(llm.invoke(ConversationContext(), tools=[tool], system_prompt="s"))
+    assert "tools" in client.calls[0]
