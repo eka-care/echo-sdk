@@ -15,6 +15,19 @@ GEMINI_AUDIO_MODELS = [
 
 EKACARE_LANGUAGES = ["en-IN", "en-US", "hi"]
 
+# Sarvam streaming socket (SarvamRealtimeClient). The REST transcriber uses the
+# saarika models and its own language handling; these apply to the socket only.
+SARVAM_REALTIME_MODEL = "saaras:v4"
+
+# Taken from the socket's own validation error, which enumerates the set when
+# sent something invalid. Auto-detect is spelled "unknown" ("auto" is rejected)
+# and Odia is "od-IN". Wider than what REST accepts.
+SARVAM_REALTIME_LANGUAGES = [
+    "unknown", "en-IN", "hi-IN", "bn-IN", "kn-IN", "ml-IN", "mr-IN", "od-IN",
+    "pa-IN", "ta-IN", "te-IN", "gu-IN", "as-IN", "ur-IN", "ne-IN", "kok-IN",
+    "ks-IN", "sd-IN", "sa-IN", "sat-IN", "mni-IN", "brx-IN", "mai-IN", "doi-IN",
+]
+
 
 class TranscriberConfig(BaseModel):
     provider: Literal["gemini", "ekacare", "sarvam"] = Field(
