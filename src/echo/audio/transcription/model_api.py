@@ -1,22 +1,32 @@
-"""Self-hosted MODEL API transcription provider.
+"""Self-hosted MODEL API transcription provider (ekascribe model).
 
-Speaks the bare multipart transcription wire used by self-deployed model
-services:
+The model is served behind an OpenAI-compatible **chat completions** API and
+takes the audio as base64 ``input_audio`` content alongside a transcription
+prompt:
 
-    POST {endpoint}?language=<code>
-    multipart/form-data: file=<audio>
+    POST {base_url}/chat/completions
+    {"model": ..., "messages": [{"role": "user", "content": [
+        {"type": "text", "text": "<transcription prompt>"},
+        {"type": "input_audio", "input_audio": {"data": "<b64>", "format": "wav"}}
+    ]}], "temperature": 0.0, "top_p": 1.0, "max_completion_tokens": ...}
 
-e.g. ``curl 'http://<model-host>/transcribe?language=hi' --form 'file=@1.mp3'``
+Config (env fallbacks):
+- base_url:  TranscriberConfig.base_url or ``MODEL_API_BASE_URL`` (OpenAI-style
+  base, e.g. ``http://ekascribe.orbi.orbi/v1``; legacy
+  ``MODEL_API_TRANSCRIBE_URL`` is also honored)
+- model:     TranscriberConfig.model / ``MODEL_API_STT_MODEL``
+- api_key:   TranscriberConfig.api_key or ``MODEL_API_AUTH_TOKEN`` ("EMPTY"
+  when unset — vLLM-style servers accept any placeholder)
+- prompt:    caller-supplied > ``MODEL_API_TRANSCRIBE_PROMPT`` > built-in
+  default (verbatim, any Indian language)
+- max tokens: ``MODEL_API_MAX_TOKENS`` (default 1024 — the transcript is cut
+  off at this many tokens, so keep it comfortably above chunk length)
 
-The endpoint is the FULL transcribe URL — TranscriberConfig(base_url=...) or
-env ``MODEL_API_TRANSCRIBE_URL``. Auth is optional (``api_key`` /
-``MODEL_API_AUTH_TOKEN`` sent as a Bearer when set). The response is parsed
-leniently: JSON with the transcript under ``text`` / ``transcript`` /
-``transcription`` (optionally inside a ``data`` envelope), or a plain-text
-body.
+The wire has no language parameter; the ``language`` argument is accepted and
+echoed back as ``language_detected`` but not sent.
 """
 
-import io
+import base64
 import logging
 import os
 from typing import Any, Optional, Tuple
@@ -29,7 +39,15 @@ from .schemas import AudioInput, TranscriptionResponse
 
 logger = logging.getLogger(__name__)
 
-_MIME_EXT = {
+CHAT_COMPLETIONS_PATH = "/chat/completions"
+
+DEFAULT_PROMPT = (
+    "You are transcriptionist. Transcribe the audio given to you in "
+    "verbatim manner. It can be in any language in India.\n\n"
+    "<|audio_bos|><audio><|audio_eos|> Transcribe this audio."
+)
+
+_MIME_FORMAT = {
     "audio/m4a": "m4a",
     "audio/mp4": "m4a",
     "audio/x-m4a": "m4a",
@@ -44,13 +62,16 @@ _MIME_EXT = {
 
 
 class ModelApiTranscriber(BaseTranscriber):
-    """Multipart file upload against a configurable transcribe endpoint."""
+    """base64 input_audio over OpenAI chat completions wire."""
 
     def __init__(self, config: TranscriberConfig):
         super().__init__(config)
-        self.endpoint = (
-            config.base_url or os.getenv("MODEL_API_TRANSCRIBE_URL") or ""
-        ).strip()
+        self.base_url = (
+            config.base_url
+            or os.getenv("MODEL_API_BASE_URL")
+            or os.getenv("MODEL_API_TRANSCRIBE_URL")
+            or ""
+        ).rstrip("/")
         self._client = None
 
     @property
@@ -69,40 +90,57 @@ class ModelApiTranscriber(BaseTranscriber):
         language: Optional[str] = None,
         **kwargs: Any,
     ) -> TranscriptionResponse:
-        if prompt is not None:
-            logger.warning(
-                "ModelApiTranscriber received a prompt but the model API does "
-                "not accept prompts; ignoring."
-            )
         try:
-            if not self.endpoint:
+            if not self.base_url:
                 raise ValueError(
-                    "model_api transcriber needs the transcribe endpoint — pass "
-                    "TranscriberConfig(base_url=...) or set "
-                    "MODEL_API_TRANSCRIBE_URL "
-                    "(e.g. http://model-host/transcribe)."
+                    "model_api transcriber needs the OpenAI-compatible base "
+                    "URL — pass TranscriberConfig(base_url=...) or set "
+                    "MODEL_API_BASE_URL (e.g. http://model-host/v1)."
                 )
             audio_bytes, resolved_mime = self._resolve_audio(audio, mime_type)
-            lang = language or self.config.language
-
-            params = {"language": lang} if lang else None
-            ext = _MIME_EXT.get((resolved_mime or "").lower(), "bin")
-            files = {
-                "file": (
-                    f"audio.{ext}",
-                    io.BytesIO(audio_bytes),
-                    resolved_mime or "application/octet-stream",
-                )
-            }
-            headers = {}
-            token = self.config.api_key or os.getenv("MODEL_API_AUTH_TOKEN")
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-
-            response = await self.client.post(
-                self.endpoint, params=params, files=files, headers=headers
+            audio_format = _MIME_FORMAT.get((resolved_mime or "").lower(), "wav")
+            text_prompt = (
+                prompt or os.getenv("MODEL_API_TRANSCRIBE_PROMPT") or DEFAULT_PROMPT
             )
-            return self._parse_response(response, lang)
+
+            body = {
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": text_prompt},
+                            {
+                                "type": "input_audio",
+                                "input_audio": {
+                                    "data": base64.b64encode(audio_bytes).decode(
+                                        "utf-8"
+                                    ),
+                                    "format": audio_format,
+                                },
+                            },
+                        ],
+                    }
+                ],
+                "temperature": self.config.temperature,
+                "top_p": 1.0,
+                "max_completion_tokens": int(
+                    os.getenv("MODEL_API_MAX_TOKENS", "1024")
+                ),
+            }
+            api_key = (
+                self.config.api_key or os.getenv("MODEL_API_AUTH_TOKEN") or "EMPTY"
+            )
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+
+            url = f"{self.base_url}{CHAT_COMPLETIONS_PATH}"
+            response = await self.client.post(
+                url, content=orjson.dumps(body), headers=headers
+            )
+            return self._parse_response(response, language)
 
         except Exception as e:
             logger.error("ModelApiTranscriber transcribe error: %s", e, exc_info=True)
@@ -122,41 +160,28 @@ class ModelApiTranscriber(BaseTranscriber):
         self, response, language: Optional[str]
     ) -> TranscriptionResponse:
         if response.status_code != 200:
-            body_preview = (response.text or "")[:200]
+            body_preview = (response.text or "")[:300]
             return TranscriptionResponse(
                 text="",
                 error=f"model API HTTP {response.status_code}: {body_preview}",
             )
-
         try:
             data = orjson.loads(response.content)
         except Exception:
             return TranscriptionResponse(
-                text=(response.text or "").strip(), language_detected=language
+                text="",
+                error=(
+                    "model API returned non-JSON chat completion: "
+                    f"{(response.text or '')[:200]}"
+                ),
             )
-
-        if isinstance(data, str):
-            return TranscriptionResponse(text=data.strip(), language_detected=language)
-
-        if isinstance(data, dict):
-            inner = data.get("data") if isinstance(data.get("data"), dict) else data
-            for key in ("text", "transcript", "transcription"):
-                value = inner.get(key)
-                if isinstance(value, str):
-                    detected = inner.get("language") or inner.get("language_detected")
-                    return TranscriptionResponse(
-                        text=value.strip(),
-                        language_detected=detected
-                        if isinstance(detected, str)
-                        else language,
-                        duration_s=inner.get("duration")
-                        or inner.get("audio_duration"),
-                    )
-
+        choices = data.get("choices") or []
+        if not choices:
+            return TranscriptionResponse(
+                text="",
+                error=f"model API returned no choices: {str(data)[:200]}",
+            )
+        content = (choices[0].get("message") or {}).get("content") or ""
         return TranscriptionResponse(
-            text="",
-            error=(
-                "model API returned an unrecognized transcription payload: "
-                f"{str(data)[:200]}"
-            ),
+            text=content.strip(), language_detected=language
         )
