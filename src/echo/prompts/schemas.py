@@ -6,6 +6,7 @@ descriptor used to fetch a prompt from a provider.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
@@ -45,6 +46,13 @@ class AgentPrompt(BaseModel):
     #: cache breakpoint. Agent instructions do not belong here — they go in
     #: ``task``, where they get cached.
     context: Optional[str] = None
+    #: Reference instant for the "Current time" line the agent appends to the
+    #: uncached context. None → now(UTC) at each LLM call; pin it only for
+    #: tests/replays.
+    datetime_utc: Optional[datetime] = None
+    #: IANA timezone the reference instant is rendered in (e.g.
+    #: "Asia/Kolkata"). None or unrecognized → UTC.
+    timezone: Optional[str] = None
 
 
 class PromptConfig(BaseModel):
