@@ -6,7 +6,9 @@ Provides a framework-agnostic interface for agents with adapters.
 
 import logging
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Dict, List, Literal, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from echo.llm import LLMConfig, get_llm, prompt_cache_id
 from echo.llm.schemas import StreamEvent, StreamEventType
@@ -149,6 +151,8 @@ class BaseAgent(ABC):
         # sessions and stays cacheable. Handed to the LLM separately, to be
         # rendered after the prompt-cache breakpoint.
         self.prompt_context = agent_prompt.context
+        self._prompt_datetime_utc = agent_prompt.datetime_utc
+        self._prompt_timezone = agent_prompt.timezone
 
         # Set LLM config, defaults to Bedrock Haiku
         self.llm_config = llm_config or LLMConfig()
@@ -312,6 +316,34 @@ class BaseAgent(ABC):
         system_prompt = "\n\n".join(system_prompt_parts)
         return system_prompt
 
+    def _system_suffix(self) -> str:
+        """Volatile system suffix: prompt context plus a fresh current-time line.
+
+        Rendered per LLM call so long-lived agents never carry a stale clock.
+        Lands after the prompt-cache breakpoint (see ``_cached_system``), so
+        it can never invalidate the cached persona/task prefix.
+        """
+        try:
+            tz = (
+                ZoneInfo(self._prompt_timezone)
+                if self._prompt_timezone
+                else ZoneInfo("UTC")
+            )
+        except ZoneInfoNotFoundError:
+            logger.warning(
+                "Unrecognized timezone %r; falling back to UTC",
+                self._prompt_timezone,
+            )
+            tz = ZoneInfo("UTC")
+        now = self._prompt_datetime_utc or datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        line = (
+            f"Current time: {now.astimezone(tz).isoformat(timespec='minutes')}"
+            f" ({tz.key})"
+        )
+        return f"{self.prompt_context}\n\n{line}" if self.prompt_context else line
+
     def system_prompt_cache_id(self) -> Optional[str]:
         """ID of the prompt-cache entry this agent's requests should hit.
 
@@ -380,7 +412,7 @@ class BaseAgent(ABC):
                     context=context,
                     tools=self._build_active_tools(),
                     system_prompt=system_prompt,
-                    system_suffix=self.prompt_context,
+                    system_suffix=self._system_suffix(),
                     out_msg_id=out_msg_id,
                 )
                 if not llm_response.pending_context_reload:
@@ -432,7 +464,7 @@ class BaseAgent(ABC):
                     context=context,
                     tools=self._build_active_tools(),
                     system_prompt=system_prompt,
-                    system_suffix=self.prompt_context,
+                    system_suffix=self._system_suffix(),
                     out_msg_id=out_msg_id,
                 ):
                     if event.type == StreamEventType.DONE:

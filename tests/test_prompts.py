@@ -200,3 +200,54 @@ class TestExceptions:
         """Test PromptFetchError can be raised and caught."""
         with pytest.raises(PromptFetchError):
             raise PromptFetchError("Failed to fetch prompt")
+
+
+class TestSystemSuffixTime:
+    """Tests for the current-time line rendered into the system suffix."""
+
+    def _agent(self, **prompt_kwargs):
+        from unittest.mock import MagicMock, patch
+
+        from echo.agents.generic_agent import GenericAgent
+
+        prompt = AgentPrompt(
+            task=PromptTask(description="Test task"), **prompt_kwargs
+        )
+        with patch("echo.agents.base.get_llm", return_value=MagicMock()):
+            return GenericAgent(agent_prompt=prompt)
+
+    def test_defaults_to_now_utc(self):
+        suffix = self._agent()._system_suffix()
+        assert suffix.startswith("Current time: ")
+        assert suffix.endswith("(UTC)")
+        assert "+00:00" in suffix
+
+    def test_pinned_datetime_and_timezone(self):
+        from datetime import datetime, timezone
+
+        agent = self._agent(
+            datetime_utc=datetime(2026, 8, 12, 9, 25, 42, tzinfo=timezone.utc),
+            timezone="Asia/Kolkata",
+        )
+        assert (
+            agent._system_suffix()
+            == "Current time: 2026-08-12T14:55+05:30 (Asia/Kolkata)"
+        )
+
+    def test_naive_datetime_treated_as_utc(self):
+        from datetime import datetime
+
+        agent = self._agent(datetime_utc=datetime(2026, 8, 12, 9, 25))
+        assert (
+            agent._system_suffix()
+            == "Current time: 2026-08-12T09:25+00:00 (UTC)"
+        )
+
+    def test_invalid_timezone_falls_back_to_utc(self):
+        agent = self._agent(timezone="Not/AZone")
+        assert agent._system_suffix().endswith("(UTC)")
+
+    def test_appended_after_existing_context(self):
+        agent = self._agent(context="User is Neha.")
+        suffix = agent._system_suffix()
+        assert suffix.startswith("User is Neha.\n\nCurrent time: ")
