@@ -13,6 +13,7 @@ def generate_transcriber_config(
     provider: str = "gemini",
     model: str = "models/gemini-2.5-flash",
     api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
     language: Optional[str] = None,
     temperature: float = 0.0,
     max_output_tokens: int = 8192,
@@ -21,6 +22,7 @@ def generate_transcriber_config(
         provider=provider,
         model=model,
         api_key=api_key,
+        base_url=base_url,
         language=language,
         temperature=temperature,
         max_output_tokens=max_output_tokens,
@@ -69,7 +71,28 @@ def get_transcriber(config: TranscriberConfig) -> BaseTranscriber:
                 "Install with: pip install 'echo-sdk[sarvam]'"
             ) from e
 
+    if provider == "openai_compatible":
+        try:
+            from .openai_compatible import OpenAICompatibleTranscriber
+            return OpenAICompatibleTranscriber(config)
+        except ImportError as e:
+            raise ImportError(
+                "httpx is required for OpenAI-compatible transcription. "
+                "Install with: pip install 'echo-sdk[openai-compatible]'"
+            ) from e
+
+    # eka care parrotlet model
+    if provider == "model_api":
+        try:
+            from .model_api import ModelApiTranscriber
+            return ModelApiTranscriber(config)
+        except ImportError as e:
+            raise ImportError(
+                "httpx is required for model API transcription. "
+                "Install with: pip install 'echo-sdk[model-api]'"
+            ) from e
+
     raise ValueError(
         f"Unsupported transcription provider: {provider!r}. "
-        f"Supported: gemini, ekacare, sarvam"
+        f"Supported: gemini, ekacare, sarvam, openai_compatible, model_api"
     )

@@ -78,6 +78,36 @@ class OpenAILLM(BaseLLM):
         """Check if model supports reasoning_effort parameter."""
         return self.model.startswith(("gpt-5", "o1", "o3", "o4-mini"))
 
+    def _extra_body(self) -> Optional[dict]:
+        """Provider-specific non-OpenAI body params, sent via the SDK's
+        ``extra_body`` (e.g. vLLM ``chat_template_kwargs``). None = omit."""
+        return None
+
+    def _tools_enabled(self) -> bool:
+        """Whether to send tool schemas with the request. Providers can turn
+        this off when the serving stack rejects requests carrying tools —
+        agentic flows then degrade to plain text generation."""
+        return True
+
+    def _prompted_tools(self) -> bool:
+        """Tools travel as text: schemas in the system prompt, calls parsed
+        back out of the reply. For serving stacks with no native tool calling.
+        Tools still execute exactly as native ones do."""
+        return False
+
+    def _augment_system_prompt(self, system_prompt, tools):
+        """Hook: prompted mode appends the tool protocol block."""
+        return system_prompt
+
+    def _context_messages(self, context) -> list:
+        """Hook: how the conversation context serializes to the wire."""
+        return context.to_openai_messages()
+
+    def _messages_for_wire(self, msg) -> list:
+        """Hook: how one Message serializes to the wire (prompted mode turns
+        tool calls/results into plain text)."""
+        return msg.to_openai_messages()
+
     def _parse_response(self, response, msg_id: str) -> Message:
         """Parse OpenAI response into a Message."""
         message = response.choices[0].message
@@ -126,15 +156,21 @@ class OpenAILLM(BaseLLM):
         elicitations = []
         msg_id = out_msg_id or str(uuid.uuid4())
 
-        # Build tool schemas if tools provided
+        # Build tool schemas if tools provided (unless the provider disables
+        # them). Prompted mode: tools execute locally but never go on the wire
+        # — the protocol travels in the system prompt instead.
         openai_tools = None
         tool_map = {}
-        if tools:
-            openai_tools = [tool.to_openai_schema() for tool in tools]
+        prompted = bool(tools) and self._prompted_tools()
+        if tools and (prompted or self._tools_enabled()):
             tool_map = {tool.name: tool for tool in tools}
+            if not prompted:
+                openai_tools = [tool.to_openai_schema() for tool in tools]
+        if prompted:
+            system_prompt = self._augment_system_prompt(system_prompt, tools)
 
         # Build messages from context once
-        messages = context.to_openai_messages()
+        messages = self._context_messages(context)
 
         # Add system message if provided
         if system_prompt:
@@ -176,8 +212,13 @@ class OpenAILLM(BaseLLM):
         if openai_tools:
             request_kwargs["tools"] = openai_tools
 
+        # Provider-specific non-OpenAI body params (e.g. chat_template_kwargs)
+        extra_body = self._extra_body()
+        if extra_body:
+            request_kwargs["extra_body"] = extra_body
+
         # No tools = single iteration
-        iterations = self.max_iterations if openai_tools else 1
+        iterations = self.max_iterations if tool_map else 1
 
         for _ in range(iterations):
 
@@ -191,7 +232,7 @@ class OpenAILLM(BaseLLM):
             # Parse response into Message
             assistant_msg = self._parse_response(response, msg_id)
             context.add_message(assistant_msg)
-            messages.extend(assistant_msg.to_openai_messages())
+            messages.extend(self._messages_for_wire(assistant_msg))
 
             tool_results = []
             interrupt = False  # a tool changed loaded state → recompute & rerun
@@ -220,7 +261,7 @@ class OpenAILLM(BaseLLM):
                             msg_id=msg_id,
                         )
                         context.add_message(result_msg)
-                        messages.extend(result_msg.to_openai_messages())
+                        messages.extend(self._messages_for_wire(result_msg))
                         tool_results.append(tool_result)
                         final_response.pending_tool_result_processing = True
                         if tool_result.control_flow == ControlFlow.INTERRUPT:
@@ -288,14 +329,20 @@ class OpenAILLM(BaseLLM):
         """
         msg_id = out_msg_id or str(uuid.uuid4())
 
-        # Build tool schemas if tools provided
+        # Build tool schemas if tools provided (unless the provider disables
+        # them). Prompted mode: tools execute locally but never go on the wire
+        # — the protocol travels in the system prompt instead.
         openai_tools = None
         tool_map = {}
-        if tools:
-            openai_tools = [tool.to_openai_schema() for tool in tools]
+        prompted = bool(tools) and self._prompted_tools()
+        if tools and (prompted or self._tools_enabled()):
             tool_map = {tool.name: tool for tool in tools}
+            if not prompted:
+                openai_tools = [tool.to_openai_schema() for tool in tools]
+        if prompted:
+            system_prompt = self._augment_system_prompt(system_prompt, tools)
 
-        messages = context.to_openai_messages()
+        messages = self._context_messages(context)
 
         # Add system message if provided
         if system_prompt:
@@ -339,7 +386,12 @@ class OpenAILLM(BaseLLM):
         if openai_tools:
             request_kwargs["tools"] = openai_tools
 
-        iterations = self.max_iterations if openai_tools else 1
+        # Provider-specific non-OpenAI body params (e.g. chat_template_kwargs)
+        extra_body = self._extra_body()
+        if extra_body:
+            request_kwargs["extra_body"] = extra_body
+
+        iterations = self.max_iterations if tool_map else 1
 
         final_response = LLMResponse()
         elicitations = []
@@ -352,6 +404,46 @@ class OpenAILLM(BaseLLM):
                 accumulated_text = ""
                 tool_calls_map = {}  # index -> {id, name, arguments}
                 usage_metrics = None
+
+                prompted_scanner = None
+                if prompted:
+                    from .prompted_tools import StreamingToolCallScanner
+
+                    prompted_scanner = StreamingToolCallScanner()
+
+                def _prompted_call_events(call):
+                    tool = tool_map.get(call["name"])
+                    visible = (
+                        tool.observability == Observability.VISIBLE
+                        if tool
+                        else True
+                    )
+                    args_json = orjson.dumps(call["arguments"]).decode()
+                    tool_calls_map[len(tool_calls_map)] = {
+                        "id": call["id"],
+                        "name": call["name"],
+                        "arguments": args_json,
+                        "visible": visible,
+                    }
+                    if not visible:
+                        return []
+                    return [
+                        StreamEvent(
+                            type=StreamEventType.TOOL_CALL_START,
+                            details={
+                                "tool_id": call["id"],
+                                "tool_name": call["name"],
+                            },
+                        ),
+                        StreamEvent(
+                            type=StreamEventType.TOOL_CALL_ARGS,
+                            details={
+                                "tool_id": call["id"],
+                                "tool_name": call["name"],
+                                "delta": args_json,
+                            },
+                        ),
+                    ]
 
                 for chunk in stream:
                     if not chunk.choices:
@@ -369,7 +461,21 @@ class OpenAILLM(BaseLLM):
                     # Handle text content
                     if delta.content:
                         accumulated_text += delta.content
-                        yield StreamEvent(type=StreamEventType.TEXT, text=delta.content)
+                        if not prompted:
+                            yield StreamEvent(
+                                type=StreamEventType.TEXT, text=delta.content
+                            )
+                        else:
+                            prose_piece, completed = prompted_scanner.feed(
+                                delta.content
+                            )
+                            if prose_piece:
+                                yield StreamEvent(
+                                    type=StreamEventType.TEXT, text=prose_piece
+                                )
+                            for call in completed:
+                                for ev in _prompted_call_events(call):
+                                    yield ev
 
                     # Handle tool calls
                     if delta.tool_calls:
@@ -428,6 +534,12 @@ class OpenAILLM(BaseLLM):
                                     )
 
                 # -- end of stream --
+
+                if prompted and prompted_scanner is not None:
+                    tail = prompted_scanner.flush()
+                    if tail:
+                        yield StreamEvent(type=StreamEventType.TEXT, text=tail)
+                    accumulated_text = prompted_scanner.prose_text()
 
                 # Build content items
                 content_items = []
@@ -488,7 +600,7 @@ class OpenAILLM(BaseLLM):
                         usage=usage_metrics,
                     )
                     context.add_message(llm_message)
-                    messages.extend(llm_message.to_openai_messages())
+                    messages.extend(self._messages_for_wire(llm_message))
 
                 # OpenAI requires each tool result as a separate message
                 if tool_results:
@@ -499,7 +611,7 @@ class OpenAILLM(BaseLLM):
                             msg_id=msg_id,
                         )
                         context.add_message(result_msg)
-                        messages.extend(result_msg.to_openai_messages())
+                        messages.extend(self._messages_for_wire(result_msg))
                     final_response.pending_tool_result_processing = True
                 else:
                     final_response.pending_tool_result_processing = False
