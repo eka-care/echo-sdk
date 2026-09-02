@@ -72,3 +72,8 @@ chroma_db/
 # AWS credentials
 .aws/
 credentials
+
+# KB migration tooling (Bedrock -> Weaviate). Local working tools, not part of
+# the SDK's public surface; the generated corpus lives outside the repo in
+# ekacare/kb-data/.
+tools/

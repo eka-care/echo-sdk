@@ -46,6 +46,9 @@ mcp = ["mcp>=1.8.0"]
 # Database Engines
 postgres = ["asyncpg>=0.29.0"]
 
+# Knowledge Bases
+weaviate = ["weaviate-client>=4.9.0"]
+
 # Prompt Management
 langfuse = ["langfuse>=2.0.0"]
 
@@ -65,6 +68,7 @@ all = [
     "mcp>=1.8.0",
     "langfuse>=2.0.0",
     "asyncpg>=0.29.0",
+    "weaviate-client>=4.9.0",
 ]
 
 dev = [
