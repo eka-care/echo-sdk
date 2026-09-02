@@ -28,4 +28,10 @@ class KnowledgeBaseConfig(BaseModel):
     # A multi-tenant Weaviate collection rejects any read that omits it.
     tenant: Optional[str] = None
 
+    # A second, independent partition: `tenant` is whose data, `kb_id` is which
+    # corpus. One workspace can own several knowledge bases in one collection,
+    # so retrieval ALWAYS applies this when set — leaving it to the caller means
+    # one forgotten filter returns a neighbouring KB's documents as answers.
+    kb_id: Optional[str] = None
+
     top_k: int = Field(default=8, ge=1)

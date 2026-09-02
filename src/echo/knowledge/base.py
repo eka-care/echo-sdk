@@ -49,6 +49,7 @@ class RetrievalResult(BaseModel):
     page_start: Optional[int] = None
     page_end: Optional[int] = None
 
+    kb_id: Optional[str] = None
     doc_title: Optional[str] = None
     category: Optional[str] = None
     subcategory: Optional[str] = None

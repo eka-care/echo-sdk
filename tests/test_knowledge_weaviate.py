@@ -43,6 +43,7 @@ EXPLAIN = (
 def _obj(**overrides):
     props = {
         "text": "Lorazepam, IV, 4 mg.",
+        "kb_id": "clinical-guidelines",
         "source_uri": "s3://bucket/prefix/AHL_Ch14.pdf",
         "filename": "AHL_Ch14.pdf",
         "doc_title": "AHL Ch14 Neurological Disorders",
@@ -60,10 +61,10 @@ def _obj(**overrides):
     )
 
 
-def _kb(objects=None):
+def _kb(objects=None, kb_id=None):
     kb = WeaviateKnowledgeBase(
         WeaviateConfig(collection="ClinicalGuidelines", tenant="ws-1",
-                       http_host="weaviate.example.com")
+                       kb_id=kb_id, http_host="weaviate.example.com")
     )
     coll = MagicMock()
     coll.query.hybrid = AsyncMock(
@@ -123,6 +124,34 @@ async def test_known_filter_is_passed_through():
     kb, coll = _kb()
     await kb.retrieve("q", filters={"category": "paediatric_medical"})
     assert coll.query.hybrid.await_args.kwargs["filters"] is not None
+
+
+async def test_no_filters_and_no_kb_id_sends_none():
+    kb, coll = _kb()
+    await kb.retrieve("q")
+    assert coll.query.hybrid.await_args.kwargs["filters"] is None
+
+
+async def test_configured_kb_id_is_always_applied():
+    """One workspace can hold several knowledge bases in one collection, and
+    tenant does not separate them. A retrieval that forgets the kb_id clause
+    answers from a neighbouring corpus and looks perfectly well-formed, so the
+    connector adds it rather than trusting every caller to."""
+    kb, coll = _kb(kb_id="hr-policies")
+    await kb.retrieve("q")
+    assert coll.query.hybrid.await_args.kwargs["filters"] is not None
+
+
+async def test_caller_filters_combine_with_kb_id():
+    kb, coll = _kb(kb_id="hr-policies")
+    await kb.retrieve("q", filters={"category": "paediatric_medical"})
+    assert coll.query.hybrid.await_args.kwargs["filters"] is not None
+
+
+async def test_kb_id_is_mapped_onto_the_result():
+    kb, _ = _kb()
+    (r,) = await kb.retrieve("q")
+    assert r.kb_id == "clinical-guidelines"
 
 
 async def test_empty_query_short_circuits():

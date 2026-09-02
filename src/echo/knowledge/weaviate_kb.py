@@ -21,7 +21,7 @@ from .config import KnowledgeBaseConfig
 # Properties read back on every query. Fixed by the schema the indexing
 # pipeline creates, not by configuration.
 _PROPERTIES = [
-    "text", "source_uri", "filename", "doc_title",
+    "text", "kb_id", "source_uri", "filename", "doc_title",
     "category", "subcategory", "source_org", "heading_path",
     "page_start", "page_end",
 ]
@@ -31,7 +31,7 @@ _PROPERTIES = [
 # `source_uri` and `heading_path` must never appear here even though they come
 # back on every result.
 _FILTERABLE = [
-    "category", "subcategory", "source_org", "filename", "doc_title",
+    "kb_id", "category", "subcategory", "source_org", "filename", "doc_title",
     "page_start", "page_end",
 ]
 
@@ -147,8 +147,22 @@ class WeaviateKnowledgeBase(BaseKnowledgeBase):
 
     # -- retrieval ----------------------------------------------------------
 
-    def _build_filters(self, filters: Dict[str, Any]) -> Any:
+    def _build_filters(self, filters: Optional[Dict[str, Any]]) -> Any:
+        """Caller filters, ANDed with the configured kb_id.
+
+        The kb_id clause is added here rather than left to the caller because
+        omitting it is silent: a workspace with two knowledge bases in one
+        collection would answer from the wrong corpus, and the results look
+        perfectly well-formed.
+        """
         from weaviate.classes.query import Filter
+
+        filters = dict(filters or {})
+        if self.config.kb_id:
+            filters.setdefault("kb_id", self.config.kb_id)
+
+        if not filters:
+            return None
 
         unknown = set(filters) - set(_FILTERABLE)
         if unknown:
@@ -180,7 +194,7 @@ class WeaviateKnowledgeBase(BaseKnowledgeBase):
                 query=query,
                 alpha=self.config.alpha,
                 limit=top_k or self.config.top_k,
-                filters=self._build_filters(filters) if filters else None,
+                filters=self._build_filters(filters),
                 return_properties=_PROPERTIES,
                 # explain_score is not diagnostics here: it carries the cosine
                 # similarity that `score` cannot provide.
@@ -212,6 +226,7 @@ class WeaviateKnowledgeBase(BaseKnowledgeBase):
             content=p.get("text") or "",
             score=float(getattr(m, "score", 0.0) or 0.0) if m else 0.0,
             similarity=similarity,
+            kb_id=p.get("kb_id"),
             source_uri=p.get("source_uri"),
             filename=p.get("filename"),
             page_start=p.get("page_start"),

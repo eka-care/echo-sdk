@@ -8,7 +8,8 @@ Read-only: a connector searches an index that a separate pipeline built.
     config = KnowledgeBaseConfig(
         provider="weaviate",
         collection="ClinicalGuidelines",
-        tenant=workspace_id,
+        tenant=workspace_id,          # whose data — isolated shard
+        kb_id="clinical-guidelines",  # which corpus — always filtered on
         top_k=8,
     )
     async with get_knowledge_base(config) as kb:
