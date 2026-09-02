@@ -43,7 +43,7 @@ EXPLAIN = (
 def _obj(**overrides):
     props = {
         "text": "Lorazepam, IV, 4 mg.",
-        "kb_id": "clinical-guidelines",
+        "kb_id": "handbooks",
         "source_uri": "s3://bucket/prefix/AHL_Ch14.pdf",
         "filename": "AHL_Ch14.pdf",
         "doc_title": "AHL Ch14 Neurological Disorders",
@@ -63,7 +63,7 @@ def _obj(**overrides):
 
 def _kb(objects=None, kb_id=None):
     kb = WeaviateKnowledgeBase(
-        WeaviateConfig(collection="ClinicalGuidelines", tenant="ws-1",
+        WeaviateConfig(collection="Documents", tenant="ws-1",
                        kb_id=kb_id, http_host="weaviate.example.com")
     )
     coll = MagicMock()
@@ -151,7 +151,7 @@ async def test_caller_filters_combine_with_kb_id():
 async def test_kb_id_is_mapped_onto_the_result():
     kb, _ = _kb()
     (r,) = await kb.retrieve("q")
-    assert r.kb_id == "clinical-guidelines"
+    assert r.kb_id == "handbooks"
 
 
 async def test_empty_query_short_circuits():

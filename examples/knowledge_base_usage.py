@@ -24,7 +24,7 @@ MIN_SIMILARITY = 0.45
 async def main() -> None:
     config = KnowledgeBaseConfig(
         provider="weaviate",
-        collection=os.getenv("KB_COLLECTION", "ClinicalGuidelines"),
+        collection=os.getenv("KB_COLLECTION", "Documents"),
         tenant=os.getenv("KB_TENANT"),          # the workspace's shard
         top_k=8,
     )
@@ -34,8 +34,8 @@ async def main() -> None:
         print(f"healthy={health['healthy']}  {health['collection']}/{health['tenant']}\n")
 
         for question in (
-            "What is the first line treatment for status epilepticus?",
-            "How do I change a car tyre?",          # nothing in a clinical corpus
+            "What is the refund window for annual plans?",
+            "How do I change a car tyre?",          # nothing this corpus covers
         ):
             results = await kb.retrieve(question)
             print(question)

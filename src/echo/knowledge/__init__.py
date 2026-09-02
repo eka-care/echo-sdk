@@ -7,13 +7,13 @@ Read-only: a connector searches an index that a separate pipeline built.
 
     config = KnowledgeBaseConfig(
         provider="weaviate",
-        collection="ClinicalGuidelines",
+        collection="Documents",
         tenant=workspace_id,          # whose data — isolated shard
-        kb_id="clinical-guidelines",  # which corpus — always filtered on
+        kb_id="handbooks",            # which corpus — always filtered on
         top_k=8,
     )
     async with get_knowledge_base(config) as kb:
-        for r in await kb.retrieve("first line treatment for status epilepticus"):
+        for r in await kb.retrieve("what is the refund window?"):
             print(r.filename, r.page_start, r.similarity)
 
 Connection details default from the environment (WEAVIATE_HTTP_HOST and
