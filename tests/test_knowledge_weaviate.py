@@ -95,6 +95,18 @@ async def test_similarity_comes_from_explain_score_not_score():
     assert r.score == pytest.approx(0.8690)
 
 
+async def test_similarity_reads_a_negative_cosine():
+    """An off-topic query is where the cosine goes negative, and where
+    abstention needs the number most. A digits-only match dropped exactly
+    those to None."""
+    kb, _ = _kb(objects=[_obj(explain=(
+        "\nHybrid (Result Set vector,hybridVector) Document "
+        "c3124a88-1a5d-5598-83bf-b3d772e053a0: original score -0.012827277, "
+        "normalized score: 0.8"))])
+    (r,) = await kb.retrieve("what is the capital of France")
+    assert r.similarity == pytest.approx(-0.012827277)
+
+
 async def test_similarity_is_none_when_explain_score_unparseable():
     """Weaviate may reword that debug string. A retrieval that still returns
     passages must not fail because the similarity could not be read."""
