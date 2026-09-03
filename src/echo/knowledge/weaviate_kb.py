@@ -40,7 +40,11 @@ _FILTERABLE = [
 # the only route to a comparable, thresholdable number, since hybrid queries
 # return distance=None. Parsing prose is fragile across versions, so a miss
 # degrades `similarity` to None rather than failing the query.
-_COSINE_RE = re.compile(r"vector,hybridVector\).*?original score ([0-9.]+)")
+#
+# The sign matters: cosine runs to -1, and a query with nothing to do with the
+# corpus is exactly where it goes negative. Matching digits alone dropped those
+# to None — abstention losing its number on the queries it exists for.
+_COSINE_RE = re.compile(r"vector,hybridVector\).*?original score (-?[0-9.]+)")
 
 _clients: Dict[tuple, Any] = {}
 _clients_lock = asyncio.Lock()
