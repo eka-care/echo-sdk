@@ -81,18 +81,7 @@ def get_transcriber(config: TranscriberConfig) -> BaseTranscriber:
                 "Install with: pip install 'echo-sdk[openai-compatible]'"
             ) from e
 
-    # eka care parrotlet model
-    if provider == "model_api":
-        try:
-            from .model_api import ModelApiTranscriber
-            return ModelApiTranscriber(config)
-        except ImportError as e:
-            raise ImportError(
-                "httpx is required for model API transcription. "
-                "Install with: pip install 'echo-sdk[model-api]'"
-            ) from e
-
     raise ValueError(
         f"Unsupported transcription provider: {provider!r}. "
-        f"Supported: gemini, ekacare, sarvam, openai_compatible, model_api"
+        f"Supported: gemini, ekacare, sarvam, openai_compatible"
     )

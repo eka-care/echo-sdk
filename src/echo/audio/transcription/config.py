@@ -17,9 +17,7 @@ EKACARE_LANGUAGES = ["en-IN", "en-US", "hi"]
 
 
 class TranscriberConfig(BaseModel):
-    provider: Literal[
-        "gemini", "ekacare", "sarvam", "openai_compatible", "model_api"
-    ] = Field(
+    provider: Literal["gemini", "ekacare", "sarvam", "openai_compatible"] = Field(
         default_factory=lambda: os.getenv("ECHO_DEFAULT_TRANSCRIBER_PROVIDER", "gemini")
     )
     model: str = Field(
@@ -44,9 +42,6 @@ class TranscriberConfig(BaseModel):
         ):
             # the env default model is gemini-shaped; swap in the OpenAI default
             self.model = os.getenv("OPENAI_COMPAT_STT_MODEL", "whisper-1")
-        if self.provider == "model_api" and self.model.startswith("models/gemini"):
-            # the env default model is gemini-shaped; swap in the model API's
-            self.model = os.getenv("MODEL_API_STT_MODEL", "ekascribe")
         if self.provider == "gemini" and self.model not in GEMINI_AUDIO_MODELS:
             raise ValueError(
                 f"Model {self.model!r} not supported for provider 'gemini'. "
