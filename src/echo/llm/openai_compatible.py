@@ -11,10 +11,20 @@ api_key=...) with env fallbacks ECHO_LLM_BASE_URL / ECHO_LLM_API_KEY.
 
 from __future__ import annotations
 
+import logging
 import os
 
 from .config import LLMConfig
 from .openai import OpenAILLM
+
+logger = logging.getLogger(__name__)
+
+# Re-exported for backwards compatibility; the implementation lives in echo.utils.tls.
+from echo.utils.tls import (  # noqa: E402
+    DEFAULT_HTTP_TIMEOUT_S,
+    build_custom_http_client,
+    resolve_ssl_verify,
+)
 
 
 class OpenAICompatibleLLM(OpenAILLM):
@@ -38,7 +48,13 @@ class OpenAICompatibleLLM(OpenAILLM):
                 or os.getenv("ECHO_LLM_API_KEY")
                 or "not-needed"  # local vLLM/Ollama don't check keys
             )
-            self._client = OpenAI(api_key=api_key, base_url=self.base_url)
+            client_kwargs = {"api_key": api_key, "base_url": self.base_url}
+            http_client = build_custom_http_client(
+                ("ECHO_LLM_VERIFY_SSL",), ("ECHO_LLM_CA_BUNDLE",)
+            )
+            if http_client is not None:
+                client_kwargs["http_client"] = http_client
+            self._client = OpenAI(**client_kwargs)
         return self._client
 
     # Open-model servers speak plain max_tokens and reject OpenAI-only params.
