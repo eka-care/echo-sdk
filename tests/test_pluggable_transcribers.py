@@ -18,6 +18,7 @@ ENV_VARS = [
     "ECHO_TRANSCRIBER_BASE_URL",
     "ECHO_TRANSCRIBER_API_KEY",
     "OPENAI_COMPAT_STT_MODEL",
+    "ECHO_TRANSCRIBER_PATH",
 ]
 
 
@@ -169,3 +170,22 @@ def test_openai_compatible_rejects_non_bytes():
     result = asyncio.run(t.transcribe("/path/audio.mp3"))
     assert result.text == ""
     assert "bytes" in result.error
+
+
+def test_openai_compatible_default_path():
+    t = OpenAICompatibleTranscriber(
+        TranscriberConfig(provider="openai_compatible", base_url="http://stt.local/v1")
+    )
+    t._client = FakeClient(FakeResponse(json_body={"text": "hi"}))
+    asyncio.run(t.transcribe(b"audio", mime_type="audio/wav"))
+    assert t._client.calls[0]["url"] == "http://stt.local/v1/audio/transcriptions"
+
+
+def test_openai_compatible_path_env_override(monkeypatch):
+    monkeypatch.setenv("ECHO_TRANSCRIBER_PATH", "transcribe/")  # slashes normalised
+    t = OpenAICompatibleTranscriber(
+        TranscriberConfig(provider="openai_compatible", base_url="http://stt.local/v1")
+    )
+    t._client = FakeClient(FakeResponse(json_body={"text": "hi"}))
+    asyncio.run(t.transcribe(b"audio", mime_type="audio/wav"))
+    assert t._client.calls[0]["url"] == "http://stt.local/v1/transcribe"

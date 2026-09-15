@@ -9,6 +9,9 @@ Config: TranscriberConfig(provider="openai_compatible", base_url=..., model=...,
 api_key=...) with env fallbacks ECHO_TRANSCRIBER_BASE_URL /
 ECHO_TRANSCRIBER_API_KEY. base_url follows the OpenAI convention and should
 include the version prefix (e.g. ``http://stt.local:8000/v1``).
+
+The endpoint path defaults to ``/audio/transcriptions`` and can be overridden
+with ``ECHO_TRANSCRIBER_PATH`` for servers that mount it elsewhere.
 """
 
 import io
@@ -24,7 +27,15 @@ from .schemas import AudioInput, TranscriptionResponse
 
 logger = logging.getLogger(__name__)
 
-TRANSCRIPTIONS_PATH = "/audio/transcriptions"
+DEFAULT_TRANSCRIPTIONS_PATH = "/audio/transcriptions"
+
+
+def transcriptions_path() -> str:
+    """Endpoint path appended to base_url; ``ECHO_TRANSCRIBER_PATH`` overrides."""
+    raw = (os.getenv("ECHO_TRANSCRIBER_PATH") or "").strip()
+    if not raw:
+        return DEFAULT_TRANSCRIPTIONS_PATH
+    return "/" + raw.strip("/")
 
 _MIME_EXT = {
     "audio/m4a": "m4a",
@@ -97,7 +108,7 @@ class OpenAICompatibleTranscriber(BaseTranscriber):
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
 
-            url = f"{self.base_url}{TRANSCRIPTIONS_PATH}"
+            url = f"{self.base_url}{transcriptions_path()}"
             response = await self.client.post(
                 url, data=data, files=files, headers=headers
             )
