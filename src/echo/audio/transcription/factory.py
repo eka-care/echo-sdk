@@ -3,8 +3,8 @@
 import logging
 from typing import Optional
 
-from .base import BaseTranscriber
-from .config import TranscriberConfig
+from .base import BaseStreamingTranscriber, BaseTranscriber
+from .config import STREAMING_PROVIDERS, TranscriberConfig
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,51 @@ def get_transcriber(config: TranscriberConfig) -> BaseTranscriber:
                 "Install with: pip install 'echo-sdk[sarvam]'"
             ) from e
 
+    if provider == "elevenlabs":
+        # Only the realtime (Scribe v2) path is wired up today.
+        raise ValueError(
+            "Provider 'elevenlabs' is streaming-only in echo; "
+            "use get_streaming_transcriber(config) instead."
+        )
+
     raise ValueError(
         f"Unsupported transcription provider: {provider!r}. "
         f"Supported: gemini, ekacare, sarvam"
+    )
+
+
+def get_streaming_transcriber(config: TranscriberConfig) -> BaseStreamingTranscriber:
+    """Get a real-time (websocket) transcriber for the configured provider.
+
+    Raises:
+        ValueError: If the provider does not support streaming.
+        ImportError: If provider dependencies are not installed.
+    """
+    provider = config.provider.lower()
+
+    if provider == "sarvam":
+        try:
+            from .sarvam import SarvamStreamingTranscriber
+
+            return SarvamStreamingTranscriber(config)
+        except ImportError as e:
+            raise ImportError(
+                "sarvamai is required for Sarvam streaming transcription. "
+                "Install with: pip install 'echo-sdk[sarvam]'"
+            ) from e
+
+    if provider == "elevenlabs":
+        try:
+            from .elevenlabs import ElevenLabsStreamingTranscriber
+
+            return ElevenLabsStreamingTranscriber(config)
+        except ImportError as e:
+            raise ImportError(
+                "elevenlabs is required for ElevenLabs streaming transcription. "
+                "Install with: pip install 'echo-sdk[elevenlabs]'"
+            ) from e
+
+    raise ValueError(
+        f"Streaming transcription not supported for provider {provider!r}. "
+        f"Supported: {', '.join(STREAMING_PROVIDERS)}"
     )

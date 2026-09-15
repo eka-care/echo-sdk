@@ -6,6 +6,7 @@
 |------|-------------|--------------|
 | `streaming_usage.py` | Streaming responses with elicitation tools | Yes |
 | `mcp_agent_usage.py` | GenericAgent with MCP tools integration | Yes |
+| `streaming_transcription_usage.py` | Real-time STT over Sarvam / ElevenLabs websockets (feeds a 16 kHz WAV) | No (needs STT key) |
 
 ## Running Examples
 

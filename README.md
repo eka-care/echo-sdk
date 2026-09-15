@@ -41,6 +41,10 @@ pip install "echo[all] @ git+https://github.com/eka-care/echo-sdk.git"
 
 # MCP tools support
 pip install "echo[mcp] @ git+https://github.com/eka-care/echo-sdk.git"
+
+# Speech-to-text: Sarvam (batch + real-time) / ElevenLabs (real-time)
+pip install "echo[sarvam] @ git+https://github.com/eka-care/echo-sdk.git"
+pip install "echo[elevenlabs] @ git+https://github.com/eka-care/echo-sdk.git"
 ```
 
 ### From Local Build
@@ -889,3 +893,32 @@ python examples/with_tools.py
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
+
+## Real-time Speech-to-Text
+
+Sarvam (`saaras:v3`) and ElevenLabs (`scribe_v2_realtime`) can transcribe a live
+audio stream over their websocket APIs. Feed raw 16 kHz mono `pcm_s16le` frames in,
+get `StreamingTranscriptEvent`s out:
+
+```python
+from echo.audio import StreamingEventType, TranscriberConfig, get_streaming_transcriber
+
+transcriber = get_streaming_transcriber(TranscriberConfig(provider="sarvam", language="hi"))
+
+async with transcriber.stream() as session:
+    async def pump():
+        for frame in pcm_frames:          # ~100 ms of 16 kHz s16le per frame
+            await session.send_audio(frame)
+        await session.flush()             # commit whatever is buffered
+
+    async def consume():
+        async for ev in session:
+            if ev.type is StreamingEventType.PARTIAL: ...   # ElevenLabs only
+            elif ev.type is StreamingEventType.FINAL: print(ev.text)
+            elif ev.type is StreamingEventType.ERROR and not ev.recoverable: break
+
+    await asyncio.gather(pump(), consume())
+```
+
+Env: `SARVAM_API_KEY` / `ELEVENLABS_API_KEY`; models via `SARVAM_STT_STREAM_MODEL`,
+`ELEVENLABS_STT_MODEL`. See `examples/streaming_transcription_usage.py`.

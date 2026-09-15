@@ -856,7 +856,7 @@ wheels = [
 
 [[package]]
 name = "echo"
-version = "0.4.3"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "orjson" },
@@ -873,11 +873,13 @@ all = [
     { name = "anthropic" },
     { name = "asyncpg" },
     { name = "boto3" },
+    { name = "elevenlabs" },
     { name = "google-genai" },
     { name = "httpx" },
     { name = "langfuse" },
     { name = "mcp" },
     { name = "openai" },
+    { name = "sarvamai" },
     { name = "weaviate-client" },
 ]
 anthropic = [
@@ -897,6 +899,9 @@ dev = [
 ]
 ekacare = [
     { name = "httpx" },
+]
+elevenlabs = [
+    { name = "elevenlabs" },
 ]
 gemini = [
     { name = "google-genai" },
@@ -930,6 +935,8 @@ requires-dist = [
     { name = "boto3", marker = "extra == 'all'", specifier = ">=1.38.23" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.38.23" },
     { name = "crewai", marker = "extra == 'crewai'", specifier = ">=1.6.1" },
+    { name = "elevenlabs", marker = "extra == 'all'", specifier = ">=2.19.0" },
+    { name = "elevenlabs", marker = "extra == 'elevenlabs'", specifier = ">=2.19.0" },
     { name = "google-genai", marker = "extra == 'all'", specifier = ">=1.0.0" },
     { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=1.0.0" },
     { name = "httpx", marker = "extra == 'all'", specifier = ">=0.27.0" },
@@ -948,11 +955,29 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "python-dotenv", marker = "extra == 'dev'", specifier = ">=1.2.1" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "sarvamai", marker = "extra == 'sarvam'", specifier = ">=0.1.20" },
+    { name = "sarvamai", marker = "extra == 'all'", specifier = ">=0.1.28" },
+    { name = "sarvamai", marker = "extra == 'sarvam'", specifier = ">=0.1.28" },
     { name = "weaviate-client", marker = "extra == 'all'", specifier = ">=4.9.0" },
     { name = "weaviate-client", marker = "extra == 'weaviate'", specifier = ">=4.9.0" },
 ]
-provides-extras = ["bedrock", "openai", "anthropic", "gemini", "ekacare", "sarvam", "crewai", "mcp", "postgres", "weaviate", "langfuse", "ag-ui", "all", "dev"]
+provides-extras = ["bedrock", "openai", "anthropic", "gemini", "ekacare", "sarvam", "elevenlabs", "crewai", "mcp", "postgres", "weaviate", "langfuse", "ag-ui", "all", "dev"]
+
+[[package]]
+name = "elevenlabs"
+version = "2.67.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pydantic-core" },
+    { name = "requests" },
+    { name = "typing-extensions" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0e/67/295c1c645cb5eb8b97959cea344d3a6273f944badac508a0b47527c91749/elevenlabs-2.67.0.tar.gz", hash = "sha256:6f550179e8f4e610868da1a4d0013eb6b43c7023624c8f99a8e464749d19c34e", size = 809325, upload-time = "2026-09-09T08:48:32.759Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/82/43/62e24e8f999f6434b71cb697bcaa51cb60ab6bfb6d042fa0e7d956cf641f/elevenlabs-2.67.0-py3-none-any.whl", hash = "sha256:b352a31db8e3029034907578471a5cab052c5b53047285c6a25f8c291c6ed4ba", size = 2133424, upload-time = "2026-09-09T08:48:30.901Z" },
+]
 
 [[package]]
 name = "et-xmlfile"
