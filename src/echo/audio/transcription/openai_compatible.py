@@ -12,6 +12,12 @@ include the version prefix (e.g. ``http://stt.local:8000/v1``).
 
 The endpoint path defaults to ``/audio/transcriptions`` and can be overridden
 with ``ECHO_TRANSCRIBER_PATH`` for servers that mount it elsewhere.
+
+TLS for endpoints behind a private CA or a self-signed cert:
+``ECHO_TRANSCRIBER_CA_BUNDLE=/path/ca.pem`` verifies against that CA
+(recommended); ``ECHO_TRANSCRIBER_VERIFY_SSL=false`` disables verification
+(dev/testing only). The generic ``ECHO_LLM_CA_BUNDLE`` / ``ECHO_LLM_VERIFY_SSL``
+are honoured as fallbacks so one setting covers both models on the same host.
 """
 
 import io
@@ -20,6 +26,8 @@ import os
 from typing import Any, Optional, Tuple
 
 import orjson
+
+from echo.utils.tls import resolve_ssl_verify
 
 from .base import BaseTranscriber
 from .config import TranscriberConfig
@@ -66,7 +74,13 @@ class OpenAICompatibleTranscriber(BaseTranscriber):
         if self._client is None:
             import httpx
 
-            self._client = httpx.AsyncClient(timeout=self.config.request_timeout_s)
+            verify = resolve_ssl_verify(
+                ("ECHO_TRANSCRIBER_VERIFY_SSL", "ECHO_LLM_VERIFY_SSL"),
+                ("ECHO_TRANSCRIBER_CA_BUNDLE", "ECHO_LLM_CA_BUNDLE"),
+            )
+            self._client = httpx.AsyncClient(
+                timeout=self.config.request_timeout_s, verify=verify
+            )
         return self._client
 
     async def transcribe(

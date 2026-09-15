@@ -19,6 +19,10 @@ ENV_VARS = [
     "ECHO_TRANSCRIBER_API_KEY",
     "OPENAI_COMPAT_STT_MODEL",
     "ECHO_TRANSCRIBER_PATH",
+    "ECHO_TRANSCRIBER_VERIFY_SSL",
+    "ECHO_TRANSCRIBER_CA_BUNDLE",
+    "ECHO_LLM_VERIFY_SSL",
+    "ECHO_LLM_CA_BUNDLE",
 ]
 
 
@@ -189,3 +193,39 @@ def test_openai_compatible_path_env_override(monkeypatch):
     t._client = FakeClient(FakeResponse(json_body={"text": "hi"}))
     asyncio.run(t.transcribe(b"audio", mime_type="audio/wav"))
     assert t._client.calls[0]["url"] == "http://stt.local/v1/transcribe"
+
+
+def _transcriber():
+    return OpenAICompatibleTranscriber(
+        TranscriberConfig(provider="openai_compatible", base_url="https://stt.local/v1")
+    )
+
+
+def test_openai_compatible_tls_default_verifies():
+    assert _transcriber().client._transport._pool._ssl_context.verify_mode.name == "CERT_REQUIRED"
+
+
+def test_openai_compatible_tls_verify_disabled(monkeypatch, caplog):
+    monkeypatch.setenv("ECHO_TRANSCRIBER_VERIFY_SSL", "false")
+    with caplog.at_level("WARNING"):
+        client = _transcriber().client
+    assert client._transport._pool._ssl_context.verify_mode.name == "CERT_NONE"
+    assert any("DISABLED" in r.getMessage() for r in caplog.records)
+
+
+def test_openai_compatible_tls_generic_llm_env_fallback(monkeypatch):
+    monkeypatch.setenv("ECHO_LLM_VERIFY_SSL", "false")
+    client = _transcriber().client
+    assert client._transport._pool._ssl_context.verify_mode.name == "CERT_NONE"
+
+
+def test_openai_compatible_tls_ca_bundle(monkeypatch):
+    import echo.utils.tls as tls
+
+    seen = {}
+    monkeypatch.setattr(
+        tls.ssl, "create_default_context", lambda cafile=None: seen.setdefault("cafile", cafile) and tls.ssl.SSLContext()
+    )
+    monkeypatch.setenv("ECHO_TRANSCRIBER_CA_BUNDLE", "/certs/private-ca.pem")
+    _transcriber().client
+    assert seen["cafile"] == "/certs/private-ca.pem"

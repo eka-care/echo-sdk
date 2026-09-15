@@ -1,5 +1,6 @@
-"""Tests for the TLS options of the openai_compatible LLM provider
-(ECHO_LLM_VERIFY_SSL / ECHO_LLM_CA_BUNDLE for endpoints behind a private CA)."""
+"""Tests for the TLS options shared by the openai_compatible providers
+(echo.utils.tls; ECHO_LLM_VERIFY_SSL / ECHO_LLM_CA_BUNDLE for endpoints behind
+a private CA)."""
 
 import pytest
 
@@ -29,11 +30,11 @@ def test_ssl_verify_disabled(monkeypatch, caplog):
     with caplog.at_level("WARNING"):
         result = resolve_ssl_verify(VERIFY_VARS, CA_VARS)
     assert result is False
-    assert any("DISABLED" in r.message for r in caplog.records)
+    assert any("DISABLED" in r.getMessage() for r in caplog.records)
 
 
 def test_ssl_ca_bundle_context(monkeypatch):
-    import echo.llm.openai_compatible as oc
+    import echo.utils.tls as tls
 
     sentinel = object()
     seen = {}
@@ -42,9 +43,9 @@ def test_ssl_ca_bundle_context(monkeypatch):
         seen["cafile"] = cafile
         return sentinel
 
-    monkeypatch.setattr(oc.ssl, "create_default_context", fake_ctx)
+    monkeypatch.setattr(tls.ssl, "create_default_context", fake_ctx)
     monkeypatch.setenv("ECHO_LLM_CA_BUNDLE", "/certs/private-ca.pem")
-    result = oc.resolve_ssl_verify(VERIFY_VARS, CA_VARS)
+    result = tls.resolve_ssl_verify(VERIFY_VARS, CA_VARS)
     assert result is sentinel
     assert seen["cafile"] == "/certs/private-ca.pem"
 
