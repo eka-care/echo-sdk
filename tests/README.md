@@ -28,6 +28,7 @@ uv run pytest --cov=echo
 |------|-------------|--------------|
 | `test_llm_response.py` | LLMResponse and VerboseResponseItem model tests | No |
 | `test_llm_providers_integration.py` | Integration tests for Bedrock, OpenAI, Anthropic providers | Yes |
+| `test_openai_models.py` | GPT-5.6 Luna/Terra/Sol + GPT-6 Astra: request shape (offline) and live tests (set `OPENAI_API_KEY` in `.env`) | Live tests only |
 | `conftest.py` | Pytest fixtures and path configuration | - |
 
 ## Test Categories

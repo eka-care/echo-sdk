@@ -25,6 +25,10 @@ from .schemas import LLMResponse, StreamEvent, StreamEventType, VerboseResponseI
 
 logger = logging.getLogger(__name__)
 
+# Reasoning effort levels per the OpenAI model pages.
+_GPT_5_6_EFFORTS = frozenset({"none", "low", "medium", "high", "xhigh", "max"})
+_GPT_6_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
+
 
 class OpenAILLM(BaseLLM):
     """OpenAI LLM provider."""
@@ -71,12 +75,104 @@ class OpenAILLM(BaseLLM):
         return not self.model.startswith(legacy_models)
 
     def _is_reasoning_model(self) -> bool:
-        """Check if model is a reasoning model (o-series) that doesn't support temperature."""
-        return self.model.startswith(("o1", "o3", "o4-mini"))
+        """Check if model is a reasoning model that doesn't support temperature."""
+        return self.model.startswith(("o1", "o3", "o4-mini", "gpt-5.6", "gpt-6"))
 
     def _supports_reasoning_effort(self) -> bool:
         """Check if model supports reasoning_effort parameter."""
-        return self.model.startswith(("gpt-5", "o1", "o3", "o4-mini"))
+        return self.model.startswith(("gpt-5", "gpt-6", "o1", "o3", "o4-mini"))
+
+    def _supported_efforts(self) -> Optional[frozenset]:
+        """Effort levels the model documents; None means unknown (pass through)."""
+        if self.model.startswith("gpt-6"):
+            return _GPT_6_EFFORTS
+        if self.model.startswith("gpt-5.6"):
+            return _GPT_5_6_EFFORTS
+        return None
+
+    def _resolve_reasoning_effort(self) -> Optional[str]:
+        """The effort to send, or None to let the model use its default."""
+        if not self.reasoning_effort or not self._supports_reasoning_effort():
+            return None
+        effort = self.reasoning_effort.value
+        supported = self._supported_efforts()
+        if supported is None or effort in supported:
+            return effort
+        # Only none/minimal fall through here (GPT-6 Astra has neither).
+        # OpenAI's migration guidance is to start from "low".
+        logger.warning(
+            "reasoning_effort=%r is not supported by %s; using 'low'", effort, self.model
+        )
+        return "low"
+
+    def _build_request_kwargs(
+        self,
+        messages: List[dict],
+        openai_tools: Optional[List[dict]],
+        system_prompt: Optional[str],
+        kwargs: dict,
+    ) -> dict:
+        """Chat Completions request shared by invoke() and invoke_stream()."""
+        if openai_tools and self.model.startswith("gpt-6"):
+            raise ValueError(
+                f"{self.model} does not support function calling on Chat Completions "
+                "(OpenAI requires the Responses API for tools on this model). "
+                "Invoke it without tools, or use a gpt-5.6 model for tool use."
+            )
+
+        request_kwargs = {"model": self.model, "messages": messages}
+
+        # OpenAI caches automatically on the longest common prefix (GPT-5.6+:
+        # 30m TTL, the default and only value). The key routes requests sharing
+        # a prefix to the same cache — keyed on the cacheable half only, so
+        # every session of an agent lands together and different agents stay
+        # apart. On GPT-5.6+ it only separates cache accounting.
+        cache_key = prompt_cache_id(system_prompt)
+        if cache_key:
+            request_kwargs["prompt_cache_key"] = cache_key
+
+        max_tokens_value = kwargs.get("max_tokens", self.max_tokens)
+        if self._uses_max_completion_tokens():
+            request_kwargs["max_completion_tokens"] = max_tokens_value
+        else:
+            request_kwargs["max_tokens"] = max_tokens_value
+
+        if not self._is_reasoning_model():
+            request_kwargs["temperature"] = kwargs.get("temperature", self.temperature)
+
+        effort = self._resolve_reasoning_effort()
+        # GPT-5.6 on Chat Completions 400s on function tools with any effort
+        # but "none" — including the implicit default (medium) — so it must be
+        # sent explicitly. Reasoning with tools needs the Responses API.
+        if openai_tools and self.model.startswith("gpt-5.6"):
+            if effort not in (None, "none"):
+                logger.warning(
+                    "%s does not support reasoning_effort=%r with tools on Chat "
+                    "Completions; using 'none'",
+                    self.model,
+                    effort,
+                )
+            effort = "none"
+        if effort:
+            request_kwargs["reasoning_effort"] = effort
+
+        if openai_tools:
+            request_kwargs["tools"] = openai_tools
+        return request_kwargs
+
+    @staticmethod
+    def _usage_metrics(usage) -> Optional[LLMUsageMetrics]:
+        """Map OpenAI usage (incl. prompt-cache reads/writes) to LLMUsageMetrics."""
+        if usage is None:
+            return None
+        details = getattr(usage, "prompt_tokens_details", None)
+        return LLMUsageMetrics(
+            in_t=usage.prompt_tokens,
+            op_t=usage.completion_tokens,
+            latency_ms=0,
+            cache_read_t=getattr(details, "cached_tokens", 0) or 0,
+            cache_write_t=getattr(details, "cache_write_tokens", 0) or 0,
+        )
 
     def _parse_response(self, response, msg_id: str) -> Message:
         """Parse OpenAI response into a Message."""
@@ -100,11 +196,7 @@ class OpenAILLM(BaseLLM):
             role=MessageRole.ASSISTANT,
             content=content_items,
             msg_id=msg_id,
-            usage=LLMUsageMetrics(
-                in_t=response.usage.prompt_tokens,
-                op_t=response.usage.completion_tokens,
-                latency_ms=0,
-            ),
+            usage=self._usage_metrics(response.usage),
         )
 
     async def invoke(
@@ -145,36 +237,9 @@ class OpenAILLM(BaseLLM):
                 }
             ] + messages
 
-        # Build the base request kwargs once
-        request_kwargs = {
-            "model": self.model,
-            "messages": messages,
-        }
-
-        # Routes requests sharing a prefix to the same cache. Keyed on the
-        # cacheable half only, so every session of an agent lands together and
-        # different agents stay apart.
-        cache_key = prompt_cache_id(system_prompt)
-        if cache_key:
-            request_kwargs["prompt_cache_key"] = cache_key
-
-        # Use appropriate token limit parameter based on model
-        max_tokens_value = kwargs.get("max_tokens", self.max_tokens)
-        if self._uses_max_completion_tokens():
-            request_kwargs["max_completion_tokens"] = max_tokens_value
-        else:
-            request_kwargs["max_tokens"] = max_tokens_value
-
-        # Temperature not supported for o-series reasoning models
-        if not self._is_reasoning_model():
-            request_kwargs["temperature"] = kwargs.get("temperature", self.temperature)
-
-        # Reasoning effort for GPT-5.x and o-series
-        if self.reasoning_effort and self._supports_reasoning_effort():
-            request_kwargs["reasoning_effort"] = self.reasoning_effort.value
-
-        if openai_tools:
-            request_kwargs["tools"] = openai_tools
+        request_kwargs = self._build_request_kwargs(
+            messages, openai_tools, system_prompt, kwargs
+        )
 
         # No tools = single iteration
         iterations = self.max_iterations if openai_tools else 1
@@ -306,38 +371,11 @@ class OpenAILLM(BaseLLM):
                 }
             ] + messages
 
-        # Build the base request kwargs
-        request_kwargs = {
-            "model": self.model,
-            "messages": messages,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
-
-        # Routes requests sharing a prefix to the same cache. Keyed on the
-        # cacheable half only, so every session of an agent lands together and
-        # different agents stay apart.
-        cache_key = prompt_cache_id(system_prompt)
-        if cache_key:
-            request_kwargs["prompt_cache_key"] = cache_key
-
-        # Use appropriate token limit parameter based on model
-        max_tokens_value = kwargs.get("max_tokens", self.max_tokens)
-        if self._uses_max_completion_tokens():
-            request_kwargs["max_completion_tokens"] = max_tokens_value
-        else:
-            request_kwargs["max_tokens"] = max_tokens_value
-
-        # Temperature not supported for o-series reasoning models
-        if not self._is_reasoning_model():
-            request_kwargs["temperature"] = kwargs.get("temperature", self.temperature)
-
-        # Reasoning effort for GPT-5.x and o-series
-        if self.reasoning_effort and self._supports_reasoning_effort():
-            request_kwargs["reasoning_effort"] = self.reasoning_effort.value
-
-        if openai_tools:
-            request_kwargs["tools"] = openai_tools
+        request_kwargs = self._build_request_kwargs(
+            messages, openai_tools, system_prompt, kwargs
+        )
+        request_kwargs["stream"] = True
+        request_kwargs["stream_options"] = {"include_usage": True}
 
         iterations = self.max_iterations if openai_tools else 1
 
@@ -357,11 +395,7 @@ class OpenAILLM(BaseLLM):
                     if not chunk.choices:
                         # Usage info comes in final chunk with empty choices
                         if chunk.usage:
-                            usage_metrics = LLMUsageMetrics(
-                                in_t=chunk.usage.prompt_tokens,
-                                op_t=chunk.usage.completion_tokens,
-                                latency_ms=0,
-                            )
+                            usage_metrics = self._usage_metrics(chunk.usage)
                         continue
 
                     delta = chunk.choices[0].delta
