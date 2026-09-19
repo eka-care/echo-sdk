@@ -142,7 +142,7 @@ class LLMUsageMetrics(BaseModel):
     in_t: int = 0
     op_t: int = 0
     latency_ms: int = 0
-    # Prompt-cache accounting (Anthropic). cache_write_t = tokens written to the
+    # Prompt-cache accounting (Anthropic, Bedrock, OpenAI). cache_write_t = tokens written to the
     # cache this request (~1.25x input price); cache_read_t = tokens served from
     # cache (~0.1x). Both 0 when caching is unused or the prefix is below the
     # model's minimum cacheable size.

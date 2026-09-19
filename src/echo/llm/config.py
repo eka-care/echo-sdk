@@ -20,6 +20,7 @@ class ReasoningEffort(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     XHIGH = "xhigh"
+    MAX = "max"  # GPT-5.6 / GPT-6
 
 
 class GeminiThinkingLevel(str, Enum):
