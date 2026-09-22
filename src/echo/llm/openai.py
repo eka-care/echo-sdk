@@ -113,13 +113,6 @@ class OpenAILLM(BaseLLM):
         kwargs: dict,
     ) -> dict:
         """Chat Completions request shared by invoke() and invoke_stream()."""
-        if openai_tools and self.model.startswith("gpt-6"):
-            raise ValueError(
-                f"{self.model} does not support function calling on Chat Completions "
-                "(OpenAI requires the Responses API for tools on this model). "
-                "Invoke it without tools, or use a gpt-5.6 model for tool use."
-            )
-
         request_kwargs = {"model": self.model, "messages": messages}
 
         # OpenAI caches automatically on the longest common prefix (GPT-5.6+:
@@ -159,6 +152,133 @@ class OpenAILLM(BaseLLM):
         if openai_tools:
             request_kwargs["tools"] = openai_tools
         return request_kwargs
+
+    def _uses_responses_api(self, openai_tools: Optional[List[dict]]) -> bool:
+        """GPT-6 only accepts function tools on the Responses API."""
+        return bool(openai_tools) and self.model.startswith("gpt-6")
+
+    @staticmethod
+    def _to_responses_input(messages: List[dict]) -> List[dict]:
+        """Translate Chat Completions messages into Responses API input items."""
+        items: List[dict] = []
+        for msg in messages:
+            if msg["role"] == "tool":
+                items.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": msg["tool_call_id"],
+                        "output": msg["content"],
+                    }
+                )
+                continue
+
+            content = msg.get("content")
+            if isinstance(content, list):
+                content = [
+                    {"type": "input_image", "image_url": part["image_url"]["url"]}
+                    if part["type"] == "image_url"
+                    else {"type": "input_text", "text": part["text"]}
+                    for part in content
+                ]
+            if content:
+                items.append({"role": msg["role"], "content": content})
+
+            for tc in msg.get("tool_calls") or []:
+                items.append(
+                    {
+                        "type": "function_call",
+                        "call_id": tc["id"],
+                        "name": tc["function"]["name"],
+                        "arguments": tc["function"]["arguments"],
+                    }
+                )
+        return items
+
+    def _build_responses_kwargs(
+        self,
+        input_items: List[dict],
+        openai_tools: List[dict],
+        system_prompt: Optional[str],
+        system_suffix: Optional[str],
+        kwargs: dict,
+    ) -> dict:
+        """Responses API request shared by the invoke() and invoke_stream() paths."""
+        request_kwargs = {
+            "model": self.model,
+            "input": input_items,
+            # Responses defaults function tools to strict mode, which rejects
+            # schemas that aren't fully closed; Chat Completions never did.
+            "tools": [
+                {"type": "function", **tool["function"], "strict": False}
+                for tool in openai_tools
+            ],
+            "max_output_tokens": kwargs.get("max_tokens", self.max_tokens),
+            # Stay stateless like the Chat Completions path: nothing is stored
+            # server-side, so reasoning comes back encrypted and is replayed
+            # within the tool loop (the model rejects tool turns without it).
+            "store": False,
+            "include": ["reasoning.encrypted_content"],
+        }
+        if system_prompt:
+            request_kwargs["instructions"] = self._system_content(
+                system_prompt, system_suffix
+            )
+
+        cache_key = prompt_cache_id(system_prompt)
+        if cache_key:
+            request_kwargs["prompt_cache_key"] = cache_key
+
+        if not self._is_reasoning_model():
+            request_kwargs["temperature"] = kwargs.get("temperature", self.temperature)
+
+        effort = self._resolve_reasoning_effort()
+        if effort:
+            request_kwargs["reasoning"] = {"effort": effort}
+        return request_kwargs
+
+    @staticmethod
+    def _responses_usage_metrics(usage) -> Optional[LLMUsageMetrics]:
+        """Map Responses API usage to LLMUsageMetrics."""
+        if usage is None:
+            return None
+        details = getattr(usage, "input_tokens_details", None)
+        return LLMUsageMetrics(
+            in_t=usage.input_tokens,
+            op_t=usage.output_tokens,
+            latency_ms=0,
+            cache_read_t=getattr(details, "cached_tokens", 0) or 0,
+        )
+
+    def _parse_responses_output(self, response, msg_id: str) -> Message:
+        """Parse a Responses API response into a Message.
+
+        Reasoning items are wire-only: they are replayed within the tool loop
+        but stay out of ConversationContext, like Anthropic thinking blocks.
+        """
+        text = ""
+        tool_calls = []
+        for item in response.output:
+            if item.type == "message":
+                text += "".join(
+                    part.text for part in item.content if part.type == "output_text"
+                )
+            elif item.type == "function_call":
+                tool_calls.append(
+                    ToolCall(
+                        tool_id=item.call_id,
+                        tool_name=item.name,
+                        tool_input=orjson.loads(item.arguments) if item.arguments else {},
+                    )
+                )
+
+        content_items = [TextMessage(text=text)] if text else []
+        content_items.extend(tool_calls)
+        return Message(
+            role=MessageRole.ASSISTANT,
+            content=content_items,
+            msg_id=msg_id,
+            usage=self._responses_usage_metrics(response.usage),
+        )
 
     @staticmethod
     def _usage_metrics(usage) -> Optional[LLMUsageMetrics]:
@@ -224,6 +344,11 @@ class OpenAILLM(BaseLLM):
         if tools:
             openai_tools = [tool.to_openai_schema() for tool in tools]
             tool_map = {tool.name: tool for tool in tools}
+
+        if self._uses_responses_api(openai_tools):
+            return await self._invoke_responses(
+                context, openai_tools, tool_map, system_prompt, system_suffix, msg_id, kwargs
+            )
 
         # Build messages from context once
         messages = context.to_openai_messages()
@@ -359,6 +484,13 @@ class OpenAILLM(BaseLLM):
         if tools:
             openai_tools = [tool.to_openai_schema() for tool in tools]
             tool_map = {tool.name: tool for tool in tools}
+
+        if self._uses_responses_api(openai_tools):
+            async for event in self._invoke_stream_responses(
+                context, openai_tools, tool_map, system_prompt, system_suffix, msg_id, kwargs
+            ):
+                yield event
+            return
 
         messages = context.to_openai_messages()
 
@@ -552,6 +684,255 @@ class OpenAILLM(BaseLLM):
 
             except Exception as e:
                 logger.error("OpenAILLM streaming error: %s", e, exc_info=True)
+                yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
+                return
+
+        final_response.elicitations = elicitations or None
+        yield StreamEvent(
+            type=StreamEventType.DONE, llm_response=final_response, context=context
+        )
+
+    async def _invoke_responses(
+        self,
+        context: ConversationContext,
+        openai_tools: List[dict],
+        tool_map: dict,
+        system_prompt: Optional[str],
+        system_suffix: Optional[str],
+        msg_id: str,
+        kwargs: dict,
+    ) -> Tuple[LLMResponse, ConversationContext]:
+        """invoke() over the Responses API (tool calling on GPT-6)."""
+        final_response = LLMResponse()
+        elicitations = []
+
+        input_items = self._to_responses_input(context.to_openai_messages())
+        request_kwargs = self._build_responses_kwargs(
+            input_items, openai_tools, system_prompt, system_suffix, kwargs
+        )
+
+        for _ in range(self.max_iterations):
+            try:
+                response = self.client.responses.create(**request_kwargs)
+            except Exception as e:
+                logger.error("OpenAI Responses invoke error: %s", e, exc_info=True)
+                raise
+
+            assistant_msg = self._parse_responses_output(response, msg_id)
+            context.add_message(assistant_msg)
+            # Replay the raw output, reasoning items included.
+            input_items.extend(item.model_dump(exclude_none=True) for item in response.output)
+
+            tool_results = []
+            interrupt = False
+            for content_item in assistant_msg.content:
+                if isinstance(content_item, TextMessage):
+                    final_response.verbose.append(
+                        VerboseResponseItem(type="text", text=content_item.text)
+                    )
+                elif isinstance(content_item, ToolCall):
+                    tool_result = await self.invoke_tool(
+                        tool_map, content_item, context.tool_context
+                    )
+                    if tool_result.control_flow == ControlFlow.PAUSE:
+                        elicitations.append(tool_result)
+                    else:
+                        final_response.verbose.append(
+                            VerboseResponseItem(
+                                type="tool", tool_name=content_item.tool_name
+                            )
+                        )
+                        result_msg = Message(
+                            role=MessageRole.TOOL,
+                            content=[tool_result],
+                            msg_id=msg_id,
+                        )
+                        context.add_message(result_msg)
+                        input_items.extend(
+                            self._to_responses_input(result_msg.to_openai_messages())
+                        )
+                        tool_results.append(tool_result)
+                        final_response.pending_tool_result_processing = True
+                        if tool_result.control_flow == ControlFlow.INTERRUPT:
+                            interrupt = True
+
+            if not tool_results:
+                final_response.pending_tool_result_processing = False
+            if elicitations:
+                break
+            if interrupt:
+                final_response.pending_context_reload = True
+                break
+            if not tool_results:
+                break
+
+        final_text = ""
+        last_message = (
+            context.messages[-1]
+            if context.messages[-1].role == MessageRole.ASSISTANT
+            else context.messages[-2]
+        )
+        for item in last_message.content:
+            if isinstance(item, TextMessage):
+                final_text += item.text
+
+        final_response.text = final_text.strip()
+        final_response.elicitations = elicitations or None
+        return final_response, context
+
+    async def _invoke_stream_responses(
+        self,
+        context: ConversationContext,
+        openai_tools: List[dict],
+        tool_map: dict,
+        system_prompt: Optional[str],
+        system_suffix: Optional[str],
+        msg_id: str,
+        kwargs: dict,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """invoke_stream() over the Responses API (tool calling on GPT-6)."""
+        input_items = self._to_responses_input(context.to_openai_messages())
+        request_kwargs = self._build_responses_kwargs(
+            input_items, openai_tools, system_prompt, system_suffix, kwargs
+        )
+        request_kwargs["stream"] = True
+
+        final_response = LLMResponse()
+        elicitations = []
+
+        for _ in range(self.max_iterations):
+            try:
+                stream = self.client.responses.create(**request_kwargs)
+
+                calls = {}  # output_index -> {id, name, visible}
+                completed = None
+
+                for event in stream:
+                    if event.type == "response.output_text.delta":
+                        yield StreamEvent(type=StreamEventType.TEXT, text=event.delta)
+
+                    elif (
+                        event.type == "response.output_item.added"
+                        and event.item.type == "function_call"
+                    ):
+                        tool = tool_map.get(event.item.name)
+                        # Emit generic TOOL_CALL_* events only for VISIBLE
+                        # tools (SILENT = elicitation/system tools).
+                        visible = (
+                            tool.observability == Observability.VISIBLE if tool else True
+                        )
+                        calls[event.output_index] = {
+                            "id": event.item.call_id,
+                            "name": event.item.name,
+                            "visible": visible,
+                        }
+                        if visible:
+                            yield StreamEvent(
+                                type=StreamEventType.TOOL_CALL_START,
+                                details={
+                                    "tool_id": event.item.call_id,
+                                    "tool_name": event.item.name,
+                                },
+                            )
+
+                    elif event.type == "response.function_call_arguments.delta":
+                        call = calls.get(event.output_index)
+                        if call and call["visible"]:
+                            yield StreamEvent(
+                                type=StreamEventType.TOOL_CALL_ARGS,
+                                details={
+                                    "tool_id": call["id"],
+                                    "tool_name": call["name"],
+                                    "delta": event.delta,
+                                },
+                            )
+
+                    elif event.type in ("response.completed", "response.incomplete"):
+                        completed = event.response
+                        if event.type == "response.incomplete":
+                            logger.warning(
+                                "%s response incomplete: %s",
+                                self.model,
+                                completed.incomplete_details,
+                            )
+
+                    elif event.type == "response.failed":
+                        error = event.response.error
+                        raise RuntimeError(error.message if error else "response failed")
+
+                    elif event.type == "error":
+                        raise RuntimeError(event.message)
+
+                # -- end of stream --
+                if completed is None:
+                    raise RuntimeError("Responses stream ended without a final response")
+
+                # The completed response is authoritative for text and tool args.
+                assistant_msg = self._parse_responses_output(completed, msg_id)
+                input_items.extend(
+                    item.model_dump(exclude_none=True) for item in completed.output
+                )
+                visible_by_id = {c["id"]: c["visible"] for c in calls.values()}
+
+                tool_results = []
+                interrupt = False
+                for content_item in assistant_msg.content:
+                    if isinstance(content_item, TextMessage):
+                        final_response.verbose.append(
+                            VerboseResponseItem(type="text", text=content_item.text)
+                        )
+                        continue
+
+                    tool_res = await self.invoke_tool(
+                        tool_map, content_item, context.tool_context
+                    )
+                    if visible_by_id.get(content_item.tool_id, True):
+                        yield StreamEvent(
+                            type=StreamEventType.TOOL_CALL_END,
+                            details={
+                                "tool_name": content_item.tool_name,
+                                "tool_id": content_item.tool_id,
+                            },
+                        )
+
+                    if tool_res.control_flow == ControlFlow.PAUSE:
+                        elicitations.append(tool_res)
+                    else:
+                        final_response.verbose.append(
+                            VerboseResponseItem(type="tool", tool_name=content_item.tool_name)
+                        )
+                        tool_results.append(tool_res)
+                        if tool_res.control_flow == ControlFlow.INTERRUPT:
+                            interrupt = True
+
+                if assistant_msg.content:
+                    context.add_message(assistant_msg)
+
+                if tool_results:
+                    for tool_res in tool_results:
+                        result_msg = Message(
+                            role=MessageRole.TOOL,
+                            content=[tool_res],
+                            msg_id=msg_id,
+                        )
+                        context.add_message(result_msg)
+                        input_items.extend(
+                            self._to_responses_input(result_msg.to_openai_messages())
+                        )
+                    final_response.pending_tool_result_processing = True
+                else:
+                    final_response.pending_tool_result_processing = False
+
+                if elicitations:
+                    break
+                if interrupt:
+                    final_response.pending_context_reload = True
+                    break
+                if not tool_results:
+                    break
+
+            except Exception as e:
+                logger.error("OpenAILLM Responses streaming error: %s", e, exc_info=True)
                 yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
                 return
 

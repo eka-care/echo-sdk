@@ -134,9 +134,10 @@ class TestRequestShape:
         kwargs = request(openai_llm(model, ReasoningEffort.HIGH))
         assert kwargs["reasoning_effort"] == "high"
 
-    def test_astra_rejects_tools_on_chat_completions(self):
-        with pytest.raises(ValueError, match="Responses API"):
-            request(openai_llm(ASTRA), tools=TOOL_SCHEMA)
+    def test_astra_routes_tools_to_responses_api(self):
+        llm = openai_llm(ASTRA)
+        assert llm._uses_responses_api(TOOL_SCHEMA)
+        assert not llm._uses_responses_api(None)
 
     @pytest.mark.parametrize("model", ALL_MODELS)
     def test_prompt_cache_key_is_stable_per_system_prompt(self, model):
