@@ -30,6 +30,7 @@ description: LLM provider abstraction — get_llm factory, BaseLLM contract, age
 
 - **Bedrock**: Converse API. Tools wrapped as `{toolSpec: {name, description, inputSchema: {json: ...}}}`.
 - **OpenAI**: tools wrapped as `{type: "function", function: {...}}`.
+- **OpenAI GPT-6 + tools → Responses API.** Chat Completions rejects function tools on GPT-6, so `OpenAILLM` routes tool calls for `gpt-6*` through `client.responses` (stateless: `store=False`, encrypted reasoning replayed inside the tool loop, `strict=False` on tools). Without tools it stays on Chat Completions.
 - **Anthropic**: native `tool_use` / `tool_result` blocks.
 - **Gemini**: no `$ref` / `$defs` / `examples` / `default` / `title` / `additionalProperties` in schemas — `BaseTool` flattens before sending.
 - **Streaming tool calls**: args arrive incrementally. Each provider's stream loop buffers until the tool_call is complete, then executes.
