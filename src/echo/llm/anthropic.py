@@ -44,12 +44,19 @@ class AnthropicLLM(BaseLLM):
 
     @property
     def client(self):
-        """Lazy initialization of Anthropic client."""
+        """Lazy initialization of Anthropic client.
+
+        The async client, because invoke and invoke_stream are coroutines
+        running on the caller's event loop. The sync client blocked that loop
+        for the whole request -- measured at 1,644 ms of a 1,640 ms call -- so
+        every other task on the worker stalled with it: other agents' runs,
+        websocket sends, and in voice the audio of every caller on the worker.
+        """
         if self._client is None:
             import anthropic
 
             # Use config api_key if provided, otherwise falls back to ANTHROPIC_API_KEY env var
-            self._client = anthropic.Anthropic(api_key=self.config.api_key)
+            self._client = anthropic.AsyncAnthropic(api_key=self.config.api_key)
         return self._client
 
     def _cache_control(self) -> dict:
@@ -303,7 +310,7 @@ class AnthropicLLM(BaseLLM):
 
             try:
                 # Call Anthropic
-                response = self.client.messages.create(**request_kwargs)
+                response = await self.client.messages.create(**request_kwargs)
             except Exception as e:
                 logger.error("AnthropicLLM invoke error: %s", e, exc_info=True)
                 raise
@@ -446,7 +453,7 @@ class AnthropicLLM(BaseLLM):
         for _ in range(iterations):
             try:
                 # Use streaming API
-                with self.client.messages.stream(**request_kwargs) as stream:
+                async with self.client.messages.stream(**request_kwargs) as stream:
                     blocks = {}  # block index to content block
                     # Block index to request-form block, rebuilt as the stream
                     # completes. Kept separate from content_items because
@@ -458,7 +465,7 @@ class AnthropicLLM(BaseLLM):
                     interrupt = False  # a tool changed loaded state → recompute
                     usage_metrics = None
 
-                    for event in stream:
+                    async for event in stream:
                         if event.type == "message_start":
                             # Input + cache read/write tokens are reported here
                             # (message_delta only carries the output count).

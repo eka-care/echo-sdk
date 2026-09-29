@@ -77,7 +77,8 @@ def _captured_invoke_request(llm) -> dict:
 
     captured = {}
 
-    def fake_create(**request_kwargs):
+    # async: the provider awaits the client, which is AsyncAnthropic
+    async def fake_create(**request_kwargs):
         import copy
 
         # snapshot: the provider mutates the messages list after the call
