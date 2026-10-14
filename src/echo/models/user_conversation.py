@@ -98,10 +98,10 @@ class ImageContent(BaseModel):
 
 
 class DocumentContent(BaseModel):
-    """Document content block (e.g. PDF) for multimodal messages."""
+    """Document content block (e.g. PDF or plain text) for multimodal messages."""
 
     type: MessageType = MessageType.DOCUMENT
-    media_type: Literal["application/pdf"] = "application/pdf"
+    media_type: Literal["application/pdf", "text/plain"] = "application/pdf"
     source_type: ContentSourceType
     data: Optional[str] = None
     url: Optional[HttpUrl] = None
@@ -246,7 +246,21 @@ class Message(BaseModel):
                     }
                 blocks.append({"type": "image", "source": source})
             elif isinstance(item, DocumentContent):
-                if item.source_type == ContentSourceType.URL:
+                if item.media_type == "text/plain":
+                    if item.source_type == ContentSourceType.URL:
+                        import httpx
+
+                        resp = httpx.get(str(item.url), timeout=10.0)
+                        resp.raise_for_status()
+                        text_data = resp.text
+                    else:
+                        text_data = item.data
+                    source = {
+                        "type": "text",
+                        "media_type": "text/plain",
+                        "data": text_data,
+                    }
+                elif item.source_type == ContentSourceType.URL:
                     source = {"type": "url", "url": str(item.url)}
                 else:
                     source = {
