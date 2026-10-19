@@ -4,6 +4,7 @@ OpenAI LLM implementation.
 
 import logging
 import uuid
+from contextlib import aclosing
 from typing import Any, AsyncGenerator, List, Optional, Tuple
 
 import orjson
@@ -486,10 +487,16 @@ class OpenAILLM(BaseLLM):
             tool_map = {tool.name: tool for tool in tools}
 
         if self._uses_responses_api(openai_tools):
-            async for event in self._invoke_stream_responses(
-                context, openai_tools, tool_map, system_prompt, system_suffix, msg_id, kwargs
-            ):
-                yield event
+            # aclosing: closing this generator must close the one it delegates
+            # to, which is the one holding the stream. A bare `async for` leaves
+            # the inner generator to the garbage collector.
+            async with aclosing(
+                self._invoke_stream_responses(
+                    context, openai_tools, tool_map, system_prompt, system_suffix, msg_id, kwargs
+                )
+            ) as events:
+                async for event in events:
+                    yield event
             return
 
         messages = context.to_openai_messages()
@@ -515,6 +522,7 @@ class OpenAILLM(BaseLLM):
         elicitations = []
 
         for _ in range(iterations):
+            stream = None
             try:
                 # Call streaming API
                 stream = await self.client.chat.completions.create(**request_kwargs)
@@ -686,6 +694,14 @@ class OpenAILLM(BaseLLM):
                 logger.error("OpenAILLM streaming error: %s", e, exc_info=True)
                 yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
                 return
+            finally:
+                # However the loop ended -- finished, failed, cancelled, or the
+                # caller closed the generator -- hand the connection back. With
+                # the sync client a run could not be interrupted mid-stream;
+                # now it can, and an abandoned stream would hold its connection
+                # until garbage collection.
+                if stream is not None:
+                    await stream.close()
 
         final_response.elicitations = elicitations or None
         yield StreamEvent(
@@ -801,6 +817,7 @@ class OpenAILLM(BaseLLM):
         elicitations = []
 
         for _ in range(self.max_iterations):
+            stream = None
             try:
                 stream = await self.client.responses.create(**request_kwargs)
 
@@ -935,6 +952,14 @@ class OpenAILLM(BaseLLM):
                 logger.error("OpenAILLM Responses streaming error: %s", e, exc_info=True)
                 yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
                 return
+            finally:
+                # However the loop ended -- finished, failed, cancelled, or the
+                # caller closed the generator -- hand the connection back. With
+                # the sync client a run could not be interrupted mid-stream;
+                # now it can, and an abandoned stream would hold its connection
+                # until garbage collection.
+                if stream is not None:
+                    await stream.close()
 
         final_response.elicitations = elicitations or None
         yield StreamEvent(

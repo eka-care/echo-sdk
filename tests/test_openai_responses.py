@@ -64,17 +64,28 @@ def _context():
     return ctx
 
 
+class _AStream:
+    """What AsyncOpenAI hands back for stream=True: async-iterable, closeable."""
+
+    def __init__(self, items):
+        self._items = items
+        self.closed = False
+
+    async def __aiter__(self):
+        for item in self._items:
+            yield item
+
+    async def close(self):
+        self.closed = True
+
+
 def _llm(model="gpt-6-luna"):
     llm = OpenAILLM(LLMConfig(provider="openai", model=model))
     llm._client = MagicMock()
+    # the provider awaits these: the client is AsyncOpenAI
     llm._client.chat.completions.create = AsyncMock()
     llm._client.responses.create = AsyncMock()
     return llm
-
-
-async def _aiter(items):
-    for item in items:
-        yield item
 
 
 def _snapshot(create):
@@ -172,7 +183,7 @@ async def test_invoke_runs_tool_loop_and_replays_reasoning():
 async def test_stream_emits_tool_events_and_text():
     llm = _llm()
 
-    async def first_stream():
+    def first_stream():
         yield SimpleNamespace(
             type="response.output_item.added", output_index=1,
             item=SimpleNamespace(type="function_call", call_id="call_1", name="echo_tool"),
@@ -184,12 +195,14 @@ async def test_stream_emits_tool_events_and_text():
             type="response.completed", response=_response(_reasoning(), _call())
         )
 
-    async def second_stream():
+    def second_stream():
         yield SimpleNamespace(type="response.output_text.delta", delta="fin")
         yield SimpleNamespace(type="response.output_text.delta", delta="al")
         yield SimpleNamespace(type="response.completed", response=_response(_text("final")))
 
-    calls, side_effect = _snapshot(lambda n: first_stream() if n == 1 else second_stream())
+    calls, side_effect = _snapshot(
+        lambda n: _AStream(first_stream() if n == 1 else second_stream())
+    )
     llm._client.responses.create.side_effect = side_effect
 
     events = [e async for e in llm.invoke_stream(_context(), tools=[EchoTool()])]
@@ -213,7 +226,7 @@ async def test_stream_emits_tool_events_and_text():
 
 async def test_stream_failure_becomes_error_event():
     llm = _llm()
-    llm._client.responses.create.return_value = _aiter([
+    llm._client.responses.create.return_value = _AStream([
         SimpleNamespace(
             type="response.failed",
             response=SimpleNamespace(error=SimpleNamespace(message="boom")),

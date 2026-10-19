@@ -342,6 +342,7 @@ class BedrockLLM(BaseLLM):
 
         # we'll be calling the stream API and returning important data
         for _ in range(iterations):
+            response = None
             try:
                 # Call streaming API
                 response = await asyncio.to_thread(
@@ -540,6 +541,13 @@ class BedrockLLM(BaseLLM):
                 logger.error("BedrockLLM streaming error: %s", e, exc_info=True)
                 yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
                 return
+            finally:
+                # However the loop ended -- finished, failed, cancelled, or the
+                # caller closed the generator -- hand the connection back. A
+                # cancelled read's thread can't be stopped, but closing the
+                # body ends it instead of leaving it to read a dead stream.
+                if response is not None:
+                    response["stream"].close()
 
         # Not needed , this is important for full text response like invoke()
         # final_text = ""

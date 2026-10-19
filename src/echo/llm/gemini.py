@@ -340,6 +340,7 @@ class GeminiLLM(BaseLLM):
         elicitations = []
 
         for _ in range(iterations):
+            stream = None
             try:
                 stream = await self.client.aio.models.generate_content_stream(
                     model=self.model,
@@ -509,6 +510,14 @@ class GeminiLLM(BaseLLM):
                 logger.error("GeminiLLM streaming error: %s", e, exc_info=True)
                 yield StreamEvent(type=StreamEventType.ERROR, error=str(e))
                 return
+            finally:
+                # However the loop ended -- finished, failed, cancelled, or the
+                # caller closed the generator -- hand the connection back. With
+                # the sync client a run could not be interrupted mid-stream;
+                # now it can, and an abandoned stream would hold its connection
+                # until garbage collection.
+                if stream is not None:
+                    await stream.aclose()
 
         final_response.elicitations = elicitations or None
         yield StreamEvent(
