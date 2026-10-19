@@ -66,7 +66,7 @@ def test_mark_message_tail_handles_empty_messages():
 def _captured_invoke_request(llm) -> dict:
     """Run invoke() against a stub client and return the request kwargs."""
     import asyncio
-    from unittest.mock import MagicMock
+    from unittest.mock import AsyncMock, MagicMock
 
     from echo.models.user_conversation import (
         ConversationContext,
@@ -94,7 +94,7 @@ def _captured_invoke_request(llm) -> dict:
         return response
 
     llm._client = MagicMock()
-    llm._client.messages.create.side_effect = fake_create
+    llm._client.messages.create = AsyncMock(side_effect=fake_create)
 
     ctx = ConversationContext()
     ctx.add_message(

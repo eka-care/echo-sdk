@@ -2,9 +2,10 @@
 AWS Bedrock LLM implementation using Converse API.
 """
 
+import asyncio
 import logging
 import uuid
-from typing import Any, AsyncGenerator, List, Optional, Tuple
+from typing import Any, AsyncGenerator, Iterable, List, Optional, Tuple
 
 import orjson
 
@@ -25,6 +26,19 @@ from .model_capabilities import claude_capabilities
 from .schemas import LLMResponse, StreamEvent, StreamEventType, VerboseResponseItem
 
 logger = logging.getLogger(__name__)
+
+_STREAM_END = object()
+
+
+async def _iter_in_thread(iterable: Iterable[Any]) -> AsyncGenerator[Any, None]:
+    """Iterate a blocking iterator off the event loop.
+
+    boto3 has no async client, and each read of a converse_stream event stream
+    waits on the network, so every read runs in a worker thread.
+    """
+    it = iter(iterable)
+    while (item := await asyncio.to_thread(next, it, _STREAM_END)) is not _STREAM_END:
+        yield item
 
 
 class BedrockLLM(BaseLLM):
@@ -191,7 +205,7 @@ class BedrockLLM(BaseLLM):
 
             try:
                 # Call Bedrock Converse API
-                response = self.client.converse(**request_kwargs)
+                response = await asyncio.to_thread(self.client.converse, **request_kwargs)
             except Exception as e:
                 logger.error("BedrockLLM invoke error: %s", e, exc_info=True)
                 raise
@@ -330,7 +344,9 @@ class BedrockLLM(BaseLLM):
         for _ in range(iterations):
             try:
                 # Call streaming API
-                response = self.client.converse_stream(**request_kwargs)
+                response = await asyncio.to_thread(
+                    self.client.converse_stream, **request_kwargs
+                )
 
                 blocks = {}  # blockid to content block
                 content_items = []
@@ -340,7 +356,7 @@ class BedrockLLM(BaseLLM):
                 # stop_reason = None - not needed for time being
 
                 # Process stream events
-                for event in response["stream"]:
+                async for event in _iter_in_thread(response["stream"]):
                     if "contentBlockStart" in event:
                         block_id = event["contentBlockStart"].get("contentBlockIndex")
                         start = event["contentBlockStart"].get("start") or {}

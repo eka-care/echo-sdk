@@ -42,13 +42,13 @@ class OpenAILLM(BaseLLM):
     def client(self):
         """Lazy initialization of OpenAI client."""
         if self._client is None:
-            from openai import OpenAI
+            from openai import AsyncOpenAI
 
             # Use config api_key if provided, otherwise falls back to OPENAI_API_KEY env var
             if self.config.api_key:
-                self._client = OpenAI(api_key=self.config.api_key)
+                self._client = AsyncOpenAI(api_key=self.config.api_key)
             else:
-                self._client = OpenAI()
+                self._client = AsyncOpenAI()
         return self._client
 
     @staticmethod
@@ -373,7 +373,7 @@ class OpenAILLM(BaseLLM):
 
             try:
                 # Call OpenAI
-                response = self.client.chat.completions.create(**request_kwargs)
+                response = await self.client.chat.completions.create(**request_kwargs)
             except Exception as e:
                 logger.error("OpenAI invoke error: %s", e, exc_info=True)
                 raise
@@ -517,13 +517,13 @@ class OpenAILLM(BaseLLM):
         for _ in range(iterations):
             try:
                 # Call streaming API
-                stream = self.client.chat.completions.create(**request_kwargs)
+                stream = await self.client.chat.completions.create(**request_kwargs)
 
                 accumulated_text = ""
                 tool_calls_map = {}  # index -> {id, name, arguments}
                 usage_metrics = None
 
-                for chunk in stream:
+                async for chunk in stream:
                     if not chunk.choices:
                         # Usage info comes in final chunk with empty choices
                         if chunk.usage:
@@ -713,7 +713,7 @@ class OpenAILLM(BaseLLM):
 
         for _ in range(self.max_iterations):
             try:
-                response = self.client.responses.create(**request_kwargs)
+                response = await self.client.responses.create(**request_kwargs)
             except Exception as e:
                 logger.error("OpenAI Responses invoke error: %s", e, exc_info=True)
                 raise
@@ -802,12 +802,12 @@ class OpenAILLM(BaseLLM):
 
         for _ in range(self.max_iterations):
             try:
-                stream = self.client.responses.create(**request_kwargs)
+                stream = await self.client.responses.create(**request_kwargs)
 
                 calls = {}  # output_index -> {id, name, visible}
                 completed = None
 
-                for event in stream:
+                async for event in stream:
                     if event.type == "response.output_text.delta":
                         yield StreamEvent(type=StreamEventType.TEXT, text=event.delta)
 

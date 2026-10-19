@@ -191,7 +191,7 @@ class GeminiLLM(BaseLLM):
 
         for _ in range(iterations):
             try:
-                response = self.client.models.generate_content(
+                response = await self.client.aio.models.generate_content(
                     model=self.model,
                     contents=contents,
                     config=config,
@@ -341,7 +341,7 @@ class GeminiLLM(BaseLLM):
 
         for _ in range(iterations):
             try:
-                stream = self.client.models.generate_content_stream(
+                stream = await self.client.aio.models.generate_content_stream(
                     model=self.model,
                     contents=contents,
                     config=config,
@@ -355,7 +355,7 @@ class GeminiLLM(BaseLLM):
                 accumulated_tool_calls = []
                 usage_metrics = None
 
-                for chunk in stream:
+                async for chunk in stream:
                     if not chunk.candidates:
                         # May contain usage metadata only
                         if chunk.usage_metadata:

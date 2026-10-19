@@ -1,7 +1,7 @@
 """GPT-6 tool calling goes through the OpenAI Responses API."""
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from echo.llm.config import LLMConfig
 from echo.llm.openai import OpenAILLM
@@ -67,7 +67,14 @@ def _context():
 def _llm(model="gpt-6-luna"):
     llm = OpenAILLM(LLMConfig(provider="openai", model=model))
     llm._client = MagicMock()
+    llm._client.chat.completions.create = AsyncMock()
+    llm._client.responses.create = AsyncMock()
     return llm
+
+
+async def _aiter(items):
+    for item in items:
+        yield item
 
 
 def _snapshot(create):
@@ -165,7 +172,7 @@ async def test_invoke_runs_tool_loop_and_replays_reasoning():
 async def test_stream_emits_tool_events_and_text():
     llm = _llm()
 
-    def first_stream():
+    async def first_stream():
         yield SimpleNamespace(
             type="response.output_item.added", output_index=1,
             item=SimpleNamespace(type="function_call", call_id="call_1", name="echo_tool"),
@@ -177,7 +184,7 @@ async def test_stream_emits_tool_events_and_text():
             type="response.completed", response=_response(_reasoning(), _call())
         )
 
-    def second_stream():
+    async def second_stream():
         yield SimpleNamespace(type="response.output_text.delta", delta="fin")
         yield SimpleNamespace(type="response.output_text.delta", delta="al")
         yield SimpleNamespace(type="response.completed", response=_response(_text("final")))
@@ -206,7 +213,7 @@ async def test_stream_emits_tool_events_and_text():
 
 async def test_stream_failure_becomes_error_event():
     llm = _llm()
-    llm._client.responses.create.return_value = iter([
+    llm._client.responses.create.return_value = _aiter([
         SimpleNamespace(
             type="response.failed",
             response=SimpleNamespace(error=SimpleNamespace(message="boom")),
