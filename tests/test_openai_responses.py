@@ -1,7 +1,7 @@
 """GPT-6 tool calling goes through the OpenAI Responses API."""
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from echo.llm.config import LLMConfig
 from echo.llm.openai import OpenAILLM
@@ -64,9 +64,27 @@ def _context():
     return ctx
 
 
+class _AStream:
+    """What AsyncOpenAI hands back for stream=True: async-iterable, closeable."""
+
+    def __init__(self, items):
+        self._items = items
+        self.closed = False
+
+    async def __aiter__(self):
+        for item in self._items:
+            yield item
+
+    async def close(self):
+        self.closed = True
+
+
 def _llm(model="gpt-6-luna"):
     llm = OpenAILLM(LLMConfig(provider="openai", model=model))
     llm._client = MagicMock()
+    # the provider awaits these: the client is AsyncOpenAI
+    llm._client.chat.completions.create = AsyncMock()
+    llm._client.responses.create = AsyncMock()
     return llm
 
 
@@ -182,7 +200,9 @@ async def test_stream_emits_tool_events_and_text():
         yield SimpleNamespace(type="response.output_text.delta", delta="al")
         yield SimpleNamespace(type="response.completed", response=_response(_text("final")))
 
-    calls, side_effect = _snapshot(lambda n: first_stream() if n == 1 else second_stream())
+    calls, side_effect = _snapshot(
+        lambda n: _AStream(first_stream() if n == 1 else second_stream())
+    )
     llm._client.responses.create.side_effect = side_effect
 
     events = [e async for e in llm.invoke_stream(_context(), tools=[EchoTool()])]
@@ -206,7 +226,7 @@ async def test_stream_emits_tool_events_and_text():
 
 async def test_stream_failure_becomes_error_event():
     llm = _llm()
-    llm._client.responses.create.return_value = iter([
+    llm._client.responses.create.return_value = _AStream([
         SimpleNamespace(
             type="response.failed",
             response=SimpleNamespace(error=SimpleNamespace(message="boom")),

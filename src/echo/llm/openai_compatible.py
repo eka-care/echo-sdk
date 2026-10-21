@@ -31,14 +31,14 @@ class OpenAICompatibleLLM(OpenAILLM):
     @property
     def client(self):
         if self._client is None:
-            from openai import OpenAI
+            from openai import AsyncOpenAI
 
             api_key = (
                 self.config.api_key
                 or os.getenv("ECHO_LLM_API_KEY")
                 or "not-needed"  # local vLLM/Ollama don't check keys
             )
-            self._client = OpenAI(api_key=api_key, base_url=self.base_url)
+            self._client = AsyncOpenAI(api_key=api_key, base_url=self.base_url)
         return self._client
 
     # Open-model servers speak plain max_tokens and reject OpenAI-only params.
