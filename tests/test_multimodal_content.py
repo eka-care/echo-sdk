@@ -12,6 +12,7 @@ from echo.models.user_conversation import (
     Message,
     MessageRole,
     TextMessage,
+    ToolResult,
 )
 from echo.utils.download import _strip_multipart_wrapper
 
@@ -160,6 +161,66 @@ class TestAnthropicConversion:
         doc_block = result["content"][1]
         assert doc_block["type"] == "document"
         assert doc_block["source"]["type"] == "base64"
+
+
+class TestAnthropicToolResultImages:
+    """A tool result that includes images goes out as content blocks."""
+
+    @staticmethod
+    def _tool_msg(result):
+        return Message(
+            role=MessageRole.TOOL,
+            content=[ToolResult(tool_id="toolu_1", result=result)],
+        )
+
+    @staticmethod
+    def _image():
+        return ImageContent(
+            media_type="image/png",
+            source_type=ContentSourceType.BASE64,
+            data=B64_PNG,
+        )
+
+    def test_images_are_sent_as_image_blocks(self):
+        result = self._tool_msg([self._image(), self._image()]).to_anthropic_message()
+        assert result["role"] == "user"
+        tool_result = result["content"][0]
+        assert tool_result["type"] == "tool_result"
+        assert tool_result["tool_use_id"] == "toolu_1"
+        assert tool_result["content"] == [
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": B64_PNG},
+            }
+        ] * 2
+
+    def test_text_and_images_keep_their_order(self):
+        blocks = [TextMessage(text="page 1"), self._image(), TextMessage(text="page 2")]
+        content = self._tool_msg(blocks).to_anthropic_message()["content"][0]["content"]
+        assert [b["type"] for b in content] == ["text", "image", "text"]
+        assert content[0] == {"type": "text", "text": "page 1"}
+
+    def test_images_survive_a_json_round_trip(self):
+        # History is stored as JSON and reloaded, which turns the blocks into dicts.
+        stored = self._tool_msg([self._image()]).model_dump(exclude_none=True, mode="json")
+        content = Message(**stored).to_anthropic_message()["content"][0]["content"]
+        assert content[0]["type"] == "image"
+        assert content[0]["source"]["data"] == B64_PNG
+
+    @pytest.mark.parametrize(
+        "result",
+        [
+            "plain text",
+            {"key": "value"},
+            ["a", "b"],
+            [{"type": "text", "text": "no image here"}],
+            [],
+            None,
+        ],
+    )
+    def test_results_without_images_are_still_strings(self, result):
+        content = self._tool_msg(result).to_anthropic_message()["content"][0]["content"]
+        assert content == str(result)
 
 
 class TestOpenAIConversion:
