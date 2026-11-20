@@ -5,7 +5,16 @@ import uuid
 from enum import Enum
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Discriminator, Field, HttpUrl, Tag, model_validator
+from pydantic import (
+    BaseModel,
+    Discriminator,
+    Field,
+    HttpUrl,
+    Tag,
+    TypeAdapter,
+    ValidationError,
+    model_validator,
+)
 
 from echo.models.providers import Provider
 from echo.tools.core.schemas import ControlFlow, Observability
@@ -136,6 +145,46 @@ ContentItem = Annotated[
 ]
 
 
+# What a tool returns in ToolResult.result when its output includes images.
+_TOOL_RESULT_BLOCKS = TypeAdapter(List[Union[TextMessage, ImageContent]])
+
+
+def _anthropic_image_block(item: ImageContent) -> Dict[str, Any]:
+    if item.source_type == ContentSourceType.URL:
+        source = {"type": "url", "url": str(item.url)}
+    else:
+        source = {
+            "type": "base64",
+            "media_type": item.media_type,
+            "data": item.data,
+        }
+    return {"type": "image", "source": source}
+
+
+def _anthropic_tool_result_content(result: Any) -> Union[str, List[Dict[str, Any]]]:
+    """A tool's result as Anthropic `tool_result.content`.
+
+    A tool whose output includes images returns a list of TextMessage /
+    ImageContent blocks (dicts of the same shape once the conversation has
+    been stored and reloaded). Those are sent as content blocks, so an image
+    reaches the model as an image; str() would send its base64 as text. Every
+    other result is sent as a string.
+    """
+    if isinstance(result, list):
+        try:
+            blocks = _TOOL_RESULT_BLOCKS.validate_python(result)
+        except ValidationError:
+            blocks = []
+        if any(isinstance(block, ImageContent) for block in blocks):
+            return [
+                _anthropic_image_block(block)
+                if isinstance(block, ImageContent)
+                else {"type": "text", "text": block.text}
+                for block in blocks
+            ]
+    return str(result)
+
+
 class LLMUsageMetrics(BaseModel):
     """Usage metrics from LLM response."""
 
@@ -232,19 +281,11 @@ class Message(BaseModel):
                     {
                         "type": "tool_result",
                         "tool_use_id": item.tool_id,
-                        "content": str(item.result),
+                        "content": _anthropic_tool_result_content(item.result),
                     }
                 )
             elif isinstance(item, ImageContent):
-                if item.source_type == ContentSourceType.URL:
-                    source = {"type": "url", "url": str(item.url)}
-                else:
-                    source = {
-                        "type": "base64",
-                        "media_type": item.media_type,
-                        "data": item.data,
-                    }
-                blocks.append({"type": "image", "source": source})
+                blocks.append(_anthropic_image_block(item))
             elif isinstance(item, DocumentContent):
                 if item.source_type == ContentSourceType.URL:
                     source = {"type": "url", "url": str(item.url)}
