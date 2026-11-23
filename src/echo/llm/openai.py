@@ -178,6 +178,8 @@ class OpenAILLM(BaseLLM):
                 content = [
                     {"type": "input_image", "image_url": part["image_url"]["url"]}
                     if part["type"] == "image_url"
+                    else {"type": "input_file", **part["file"]}
+                    if part["type"] == "file"
                     else {"type": "input_text", "text": part["text"]}
                     for part in content
                 ]
