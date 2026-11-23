@@ -247,13 +247,24 @@ class TestOpenAIConversion:
 
     @patch("echo.models.user_conversation.download_url_as_bytes")
     def test_document_url(self, mock_download):
-        mock_download.return_value = b"%PDF- fake pdf data"
         msgs = _user_msg_with_doc(ContentSourceType.URL, url="https://example.com/doc.pdf").to_openai_messages()
-        file_block = msgs[0]["content"][1]
-        assert file_block["type"] == "file"
-        assert file_block["file"]["file_data"] == (
-            "data:application/pdf;base64," + base64.b64encode(b"%PDF- fake pdf data").decode()
-        )
+        assert msgs[0]["content"][1] == {
+            "type": "file",
+            "file": {"file_url": "https://example.com/doc.pdf"},
+        }
+        mock_download.assert_not_called()
+
+    @patch("echo.llm.openai.download_url_as_bytes", return_value=b"%PDF- fake pdf data")
+    def test_document_url_inlined_for_chat_completions(self, mock_download):
+        import asyncio
+        from echo.llm.openai import _inline_file_urls
+
+        msgs = _user_msg_with_doc(ContentSourceType.URL, url="https://example.com/doc.pdf").to_openai_messages()
+        file = asyncio.run(_inline_file_urls(msgs))[0]["content"][1]["file"]
+        assert file == {
+            "filename": "document.pdf",
+            "file_data": "data:application/pdf;base64," + base64.b64encode(b"%PDF- fake pdf data").decode(),
+        }
         mock_download.assert_called_once_with("https://example.com/doc.pdf")
 
 
