@@ -238,6 +238,24 @@ class TestOpenAIConversion:
         content = msgs[0]["content"]
         assert content[1]["image_url"]["url"] == "https://example.com/i.png"
 
+    def test_document_base64(self):
+        msgs = _user_msg_with_doc(ContentSourceType.BASE64, data=B64_PDF).to_openai_messages()
+        assert msgs[0]["content"][1] == {
+            "type": "file",
+            "file": {"filename": "test.pdf", "file_data": f"data:application/pdf;base64,{B64_PDF}"},
+        }
+
+    @patch("echo.models.user_conversation.download_url_as_bytes")
+    def test_document_url(self, mock_download):
+        mock_download.return_value = b"%PDF- fake pdf data"
+        msgs = _user_msg_with_doc(ContentSourceType.URL, url="https://example.com/doc.pdf").to_openai_messages()
+        file_block = msgs[0]["content"][1]
+        assert file_block["type"] == "file"
+        assert file_block["file"]["file_data"] == (
+            "data:application/pdf;base64," + base64.b64encode(b"%PDF- fake pdf data").decode()
+        )
+        mock_download.assert_called_once_with("https://example.com/doc.pdf")
+
 
 class TestBedrockConversion:
     def test_image_base64(self):

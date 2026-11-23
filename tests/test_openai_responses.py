@@ -126,6 +126,7 @@ def test_history_translation():
             {"role": "user", "content": [
                 {"type": "text", "text": "look"},
                 {"type": "image_url", "image_url": {"url": "https://x/y.png"}},
+                {"type": "file", "file": {"filename": "a.pdf", "file_data": "data:application/pdf;base64,QQ=="}},
             ]},
             {"role": "assistant", "content": None, "tool_calls": [{
                 "id": "c1", "type": "function",
@@ -139,6 +140,7 @@ def test_history_translation():
         {"role": "user", "content": [
             {"type": "input_text", "text": "look"},
             {"type": "input_image", "image_url": "https://x/y.png"},
+            {"type": "input_file", "filename": "a.pdf", "file_data": "data:application/pdf;base64,QQ=="},
         ]},
         {"type": "function_call", "call_id": "c1", "name": "echo_tool", "arguments": "{}"},
         {"type": "function_call_output", "call_id": "c1", "output": "ok"},

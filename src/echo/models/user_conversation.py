@@ -355,23 +355,22 @@ class Message(BaseModel):
                             {"type": "image_url", "image_url": {"url": url_str}}
                         )
                     elif isinstance(item, DocumentContent):
+                        # Chat Completions takes PDFs only as inline base64, not by URL.
                         if item.source_type == ContentSourceType.URL:
-                            content_blocks.append(
-                                {
-                                    "type": "image_url",
-                                    "image_url": {"url": str(item.url)},
-                                }
-                            )
+                            b64 = base64.b64encode(
+                                download_url_as_bytes(str(item.url))
+                            ).decode()
                         else:
-                            logger.warning(
-                                "OpenAI has limited support for base64 PDF documents"
-                            )
-                            content_blocks.append(
-                                {
-                                    "type": "text",
-                                    "text": f"[Document: {item.name or 'document.pdf'}]",
-                                }
-                            )
+                            b64 = item.data
+                        content_blocks.append(
+                            {
+                                "type": "file",
+                                "file": {
+                                    "filename": item.name or "document.pdf",
+                                    "file_data": f"data:{item.media_type};base64,{b64}",
+                                },
+                            }
+                        )
                 messages.append({"role": "user", "content": content_blocks})
             elif text_parts:
                 messages.append(
