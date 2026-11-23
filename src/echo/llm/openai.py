@@ -2,6 +2,8 @@
 OpenAI LLM implementation.
 """
 
+import asyncio
+import base64
 import logging
 import uuid
 from contextlib import aclosing
@@ -19,6 +21,7 @@ from echo.models.user_conversation import (
 )
 from echo.tools.core import BaseTool
 from echo.tools.core.schemas import ControlFlow, Observability
+from echo.utils.download import download_url_as_bytes
 
 from .base import BaseLLM, prompt_cache_id
 from .config import LLMConfig
@@ -29,6 +32,20 @@ logger = logging.getLogger(__name__)
 # Reasoning effort levels per the OpenAI model pages.
 _GPT_5_6_EFFORTS = frozenset({"none", "low", "medium", "high", "xhigh", "max"})
 _GPT_6_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
+
+
+async def _inline_file_urls(messages: List[dict]) -> List[dict]:
+    """Chat Completions takes PDFs only inline: replace each file_url with file_data."""
+    for msg in messages:
+        for part in msg["content"] if isinstance(msg.get("content"), list) else []:
+            url = part["file"].get("file_url") if part["type"] == "file" else None
+            if url:
+                data = await asyncio.to_thread(download_url_as_bytes, url)
+                part["file"] = {
+                    "filename": "document.pdf",
+                    "file_data": "data:application/pdf;base64," + base64.b64encode(data).decode(),
+                }
+    return messages
 
 
 class OpenAILLM(BaseLLM):
@@ -354,7 +371,7 @@ class OpenAILLM(BaseLLM):
             )
 
         # Build messages from context once
-        messages = context.to_openai_messages()
+        messages = await _inline_file_urls(context.to_openai_messages())
 
         # Add system message if provided
         if system_prompt:
@@ -501,7 +518,7 @@ class OpenAILLM(BaseLLM):
                     yield event
             return
 
-        messages = context.to_openai_messages()
+        messages = await _inline_file_urls(context.to_openai_messages())
 
         # Add system message if provided
         if system_prompt:
