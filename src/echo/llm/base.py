@@ -114,7 +114,12 @@ class BaseLLM(ABC):
             if not tool:
                 return ToolResult(
                     tool_id=tool_call.tool_id,
-                    result="Error: Tool not found, don't use this tool",
+                    # List the real names so the model can see what exists
+                    # instead of giving up on the step.
+                    result=(
+                        f"Error: no tool named {tool_call.tool_name!r}. "
+                        f"Available tools: {', '.join(sorted(tool_map))}."
+                    ),
                 )
 
             is_elicitation = tool.is_elicitation
