@@ -6,6 +6,7 @@ subpackage:
 
 - ``from echo.tools.core import BaseTool, ElicitationResponse, ...``
 - ``from echo.tools.elicitation import BaseElicitationTool``
+- ``from echo.tools.client import BaseClientTool, ClientTool``
 - ``from echo.tools.mcp import MCPTool, MCPConnectionManager, MCPServerConfig, ...``
 - ``from echo.tools.system import SystemTool``   (echo-internal)
 

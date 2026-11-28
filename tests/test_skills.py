@@ -579,3 +579,63 @@ async def test_unload_skill_tool_is_idempotent_for_inactive_skill(patched_get_ll
 
     result = await unload_tool.run(name="doc")
     assert result == {"status": "unloaded", "skill": "doc"}
+
+
+# --- Turn-only skills ---
+
+
+def _turn_agent(**kwargs) -> GenericAgent:
+    """Agent whose one LLM call ends the turn."""
+    from echo.llm.schemas import LLMResponse
+    from echo.models.user_conversation import (
+        ConversationContext,
+        Message,
+        MessageRole,
+    )
+
+    agent = _new_agent(
+        tools=[_StubTool("search")],
+        skills=[Skill(name="find", description="d", instructions="i", tool_names=["search"])],
+        **kwargs,
+    )
+
+    async def invoke(context, **_):
+        messages = [*context.messages, Message(role=MessageRole.ASSISTANT, content=[])]
+        return LLMResponse(), context.model_copy(update={"messages": messages})
+
+    agent.llm.invoke = invoke
+    agent.new_context = ConversationContext
+    return agent
+
+
+async def test_turn_only_skill_is_unloaded_after_the_run(patched_get_llm):
+    agent = _turn_agent()
+    await agent.activate_skill("find", turn_only=True)
+    assert agent.active_skill_names() == ["find"]
+
+    await agent.run(agent.new_context(), "m1")
+    assert agent.active_skill_names() == []
+
+
+async def test_plain_load_keeps_a_turn_only_skill(patched_get_llm):
+    agent = _turn_agent()
+    await agent.activate_skill("find", turn_only=True)
+    await agent.activate_skill("find")
+
+    await agent.run(agent.new_context(), "m1")
+    assert agent.active_skill_names() == ["find"]
+
+
+async def test_stream_run_ends_the_turn_too(patched_get_llm):
+    from echo.llm.schemas import LLMResponse, StreamEvent, StreamEventType
+
+    agent = _turn_agent()
+
+    async def invoke_stream(context, **_):
+        yield StreamEvent(type=StreamEventType.DONE, llm_response=LLMResponse(), context=context)
+
+    agent.llm.invoke_stream = invoke_stream
+    await agent.activate_skill("find", turn_only=True)
+    events = [e async for e in agent.run_stream(agent.new_context(), "m1")]
+    assert [e.type for e in events] == [StreamEventType.DONE]
+    assert agent.active_skill_names() == []
