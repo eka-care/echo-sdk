@@ -101,6 +101,8 @@ class BaseAgent(ABC):
         self.skills: Dict[str, Skill] = {}
         self.skill_activation: SkillActivation = skill_activation
         self._active_skill_names: Dict[str, None] = {}
+        # Active only for the current turn (a skill the user attached).
+        self._turn_only_skill_names: set = set()
 
         for skill in skills or []:
             # Silently drop duplicate or empty skill names
@@ -176,17 +178,22 @@ class BaseAgent(ABC):
         self,
         name: str,
         context: Optional["ConversationContext"] = None,
+        *,
+        turn_only: bool = False,
     ) -> None:
         """Add a registered skill to the active set.
 
         Idempotent: re-activating an already-active skill is a no-op (hooks
-        do not re-fire). Raises ValueError if the name is not in the registry.
+        do not re-fire), except that a plain activation keeps a turn-only
+        skill past this turn. Raises ValueError if the name is not in the
+        registry.
 
         Args:
             name: Skill.name as registered in the agent's `skills` registry.
             context: Optional live ConversationContext, forwarded to the
                 skill's on_activate hook. Pass None when activating during
                 agent setup, before any conversation has started.
+            turn_only: Unload the skill when this turn's run ends.
         """
         skill = self.skills.get(name)
         if skill is None:
@@ -194,8 +201,12 @@ class BaseAgent(ABC):
                 f"Unknown skill {name!r}. Registered skills: " f"{list(self.skills)!r}"
             )
         if name in self._active_skill_names:
+            if not turn_only:
+                self._turn_only_skill_names.discard(name)
             return
         self._active_skill_names[name] = None
+        if turn_only:
+            self._turn_only_skill_names.add(name)
         await skill.on_activate(context)
         logger.info(f"Activated skill {name!r}")
 
@@ -212,6 +223,7 @@ class BaseAgent(ABC):
             return
         skill = self.skills.get(name)
         self._active_skill_names.pop(name, None)
+        self._turn_only_skill_names.discard(name)
         if skill is not None:
             await skill.on_deactivate(context)
             logger.info(f"Deactivated skill {name!r}")
@@ -219,6 +231,13 @@ class BaseAgent(ABC):
     def active_skill_names(self) -> List[str]:
         """Return the names of currently-active skills (in activation order)."""
         return list(self._active_skill_names)
+
+    async def _end_turn_skills(
+        self, context: Optional["ConversationContext"]
+    ) -> None:
+        """After a run: unload the skills that were loaded for this turn only."""
+        for name in list(self._turn_only_skill_names):
+            await self.deactivate_skill(name, context)
 
     def _build_active_tools(self) -> List[BaseTool]:
         """Compose the per-turn tool list as a name-set union.
@@ -426,6 +445,7 @@ class BaseAgent(ABC):
                 if llm_response is not None:
                     llm_response.pending_context_reload = False
 
+            await self._end_turn_skills(context)
             return AgentResult(
                 llm_response=llm_response,
                 context=context,
@@ -484,6 +504,7 @@ class BaseAgent(ABC):
                 if not reload:
                     # Terminal DONE (or the stream ended via ERROR, already yielded).
                     if last_done is not None:
+                        await self._end_turn_skills(last_done.context or context)
                         yield last_done
                     return
 
@@ -497,6 +518,7 @@ class BaseAgent(ABC):
             if last_done is not None:
                 if last_done.llm_response is not None:
                     last_done.llm_response.pending_context_reload = False
+                await self._end_turn_skills(last_done.context or context)
                 yield last_done
         except Exception as e:
             context_info = str(context.system_context) if context else ""
